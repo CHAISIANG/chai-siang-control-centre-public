@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck } from "lucide-react";
+import { LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck } from "lucide-react";
 import { RoleProvider, useRole } from "./role";
 import { AuthProvider, useAuth } from "./auth";
 import { DataProvider, useData } from "./data";
@@ -21,6 +21,7 @@ const NAV: Nav[] = [
 const FIN_NAV: Nav[] = [
   { href: "/finance", label: "Overview", icon: Wallet, perm: "page_finance" },
   { href: "/finance/invoices", label: "Invoices", icon: Receipt, perm: "page_finance" },
+  { href: "/finance/po", label: "PO & delivery", icon: ClipboardCheck, perm: "page_finance" },
   { href: "/finance/clients", label: "Clients", icon: Building2, perm: "page_finance" },
   { href: "/finance/ar", label: "Collections", icon: HandCoins, perm: "page_finance" },
   { href: "/finance/settings", label: "Settings", icon: Settings, perm: "finance_manage" },

@@ -115,8 +115,8 @@ html.dark .recharts-tooltip-label, html.dark .recharts-tooltip-item { color: #e4
 @page { size: A4 portrait; margin: 8mm; }
 @media print {
   body * { visibility: hidden; }
-  #paf-print, #paf-print *, #inv-print, #inv-print * { visibility: visible; }
-  #paf-print, #inv-print { position: absolute; left: 0; top: 0; width: 100%; }
+  #paf-print, #paf-print *, #inv-print, #inv-print *, #po-sheet, #po-sheet * { visibility: visible; }
+  #paf-print, #inv-print, #po-sheet { position: absolute; left: 0; top: 0; width: 100%; }
   .inv-navy { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .paf-modal-root { position: static !important; overflow: visible !important; background: none !important; padding: 0 !important; }
   .no-print { display: none !important; }

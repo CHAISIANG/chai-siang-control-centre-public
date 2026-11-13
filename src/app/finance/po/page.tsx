@@ -11,8 +11,8 @@ import { openIssues, stageOf, summary } from "@/lib/po";
 
 const pctTxt = (n: number) => `${n.toFixed(0)}%`;
 const tone = (n: number): "good" | "warn" | "bad" => (n >= 95 ? "good" : n >= 85 ? "warn" : "bad");
-const issueTone = { late: "red", overdue: "red", short: "amber", price: "amber", qty: "amber", proof: "blue" } as const;
-const issueLabel = { late: "Late", overdue: "Not delivered", short: "Short", price: "Price differs", qty: "Qty differs", proof: "No proof" } as const;
+const issueTone = { late: "red", overdue: "red", short: "amber", dropped: "red", substituted: "amber", price: "amber", qty: "amber", proof: "blue", credit: "amber", copy: "red" } as const;
+const issueLabel = { late: "Late", overdue: "Not delivered", short: "Short", dropped: "Dropped", substituted: "Substituted", price: "Price differs", qty: "Qty differs", proof: "No proof", credit: "Credit note due", copy: "No PO copy" } as const;
 
 export default function PoTracking() {
   const [tab, setTab] = useState<"all" | "attention">("attention");

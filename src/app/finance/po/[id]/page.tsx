@@ -8,23 +8,24 @@ import { CheckModal, DeliveryModal, InvoiceModal, ReasonModal } from "@/componen
 import { usePo } from "@/components/po";
 import { btnPrimary, btnGhost } from "@/components/finui";
 import { Badge, Card, PageHeader, Td, Th } from "@/components/ui";
-import { daysBetween, invTotal, issues, today, poTotal, rmFmt, scoreOf } from "@/lib/po";
+import { daysBetween, invTotal, issues, OUTCOMES, today, poTotal, rmFmt, scoreOf } from "@/lib/po";
 
 export default function PoTrace() {
   const { id } = useParams<{ id: string }>();
-  const { pos, addProof, proofUrl, canManage } = usePo();
+  const { pos, addProof, addCopy, fileUrl, raiseCredit, canManage } = usePo();
   const [fileErr, setFileErr] = useState<string | null>(null);
   const [modal, setModal] = useState<null | "check" | "invoice" | "delivery" | { key: string; text: string }>(null);
   const po = pos.find((p) => p.id === id);
   if (!po) return <PageHeader title="PO not found" sub="This purchase order is not in the list." right={<Link href="/finance/po" className="text-indigo-700 hover:underline">Back to PO tracking</Link>} />;
   const found = issues(po);
-  const next = !po.checkedBy ? { label: "Second check", go: () => setModal("check") }
+  const next = !po.copyPath ? { label: "Attach PO copy", pick: "copy" as const }
+    : !po.checkedBy ? { label: "Second check", go: () => setModal("check") }
     : !po.invoiceNo ? { label: "Link invoice", go: () => setModal("invoice") }
     : !po.deliveredDate ? { label: "Record delivery", go: () => setModal("delivery") }
-    : !po.proofPath ? { label: "Upload signed copy", pick: true } : null;
+    : !po.proofPath ? { label: "Upload signed copy", pick: "proof" as const } : null;
   const sc = scoreOf(po);
   const steps = [
-    { icon: FileText, title: "PO received", date: po.poDate, done: true, lines: [`Customer PO ${po.poNo}`, `Requested delivery ${po.reqDate}`, `Taken by ${po.salesman}`] },
+    { icon: FileText, title: "PO received", date: po.poDate, done: true, lines: [`Customer PO ${po.poNo}`, `Requested delivery ${po.reqDate}`, `Taken by ${po.salesman}`, po.copyPath ? "PO copy attached" : "PO copy not attached"] },
     { icon: FileText, title: "Order keyed", date: po.soNo ? po.poDate : undefined, done: !!po.soNo, lines: po.soNo ? [`Sales order ${po.soNo}`, po.checkedBy ? `Checked against PO by ${po.checkedBy}` : "Waiting for second check"] : ["Not keyed yet"] },
     { icon: Receipt, title: "Invoice issued", date: po.invoiceDate, done: !!po.invoiceNo, lines: po.invoiceNo ? [po.invoiceNo, rmFmt(invTotal(po))] : ["No invoice yet"] },
     { icon: Truck, title: "Delivered", date: po.deliveredDate, done: !!po.deliveredDate, lines: po.deliveredDate ? [`Driver ${po.driver} · ${po.route}`] : po.invoiceNo ? [`Waiting. ${today() > po.reqDate ? daysBetween(po.reqDate, today()) + " day(s) late" : "Due " + po.reqDate}`] : ["After invoicing"] },
@@ -35,7 +36,7 @@ export default function PoTrace() {
     <>
       <Link href="/finance/po" className="no-print mb-3 inline-flex items-center gap-1 text-sm text-indigo-700 hover:underline"><ArrowLeft size={16} /> PO & delivery tracking</Link>
       <PageHeader title={po.poNo} sub={`${po.customer} · PO dated ${po.poDate}`} right={<div className="flex items-center gap-2"><Chain po={po} />{canManage && next && ("pick" in next ? (
-        <label className={`${btnPrimary} cursor-pointer`}>{next.label}<input type="file" accept="image/*,application/pdf" className="sr-only" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setFileErr(await addProof(po.id, f)); e.target.value = ""; }} /></label>
+        <label className={`${btnPrimary} cursor-pointer`}>{next.label}<input type="file" accept="image/*,application/pdf" className="sr-only" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setFileErr(await (next.pick === "copy" ? addCopy : addProof)(po.id, f)); e.target.value = ""; }} /></label>
       ) : <button onClick={next.go} className={btnPrimary}>{next.label}</button>)}</div>} />
       {fileErr && <p role="alert" className="mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{fileErr}</p>}
 
@@ -48,7 +49,8 @@ export default function PoTrace() {
               </div>
               <div className="mt-0.5 text-sm text-slate-500">{s.date ?? "Pending"}</div>
               <ul className="mt-2 space-y-0.5 text-sm text-slate-700">{s.lines.map((l) => <li key={l}>{l}</li>)}</ul>
-              {i === 4 && po.proofPath && <button onClick={async () => { const u = await proofUrl(po.proofPath!); if (u) window.open(u, "_blank", "noopener"); else setFileErr("The signed copy could not be opened."); }} className="mt-2 inline-block text-sm font-medium text-indigo-700 hover:underline">View signed copy</button>}
+              {i === 0 && po.copyPath && <button onClick={async () => { const u = await fileUrl(po.copyPath!); if (u) window.open(u, "_blank", "noopener"); else setFileErr("The PO copy could not be opened."); }} className="mt-2 inline-block text-sm font-medium text-indigo-700 hover:underline">View PO copy</button>}
+              {i === 4 && po.proofPath && <button onClick={async () => { const u = await fileUrl(po.proofPath!); if (u) window.open(u, "_blank", "noopener"); else setFileErr("The signed copy could not be opened."); }} className="mt-2 inline-block text-sm font-medium text-indigo-700 hover:underline">View signed copy</button>}
               {i === 2 && po.invoiceNo && <Link href={`/finance/invoices/${po.invoiceId}`} className="mt-2 inline-block text-sm font-medium text-indigo-700 hover:underline">Open invoice</Link>}
             </li>
           ))}
@@ -58,7 +60,7 @@ export default function PoTrace() {
       <Card className="mt-4" title="PO, invoice and delivery side by side" right={<span className="text-sm text-slate-500">Red cells do not match the PO</span>}>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="border-b border-slate-200"><tr><Th first>Item</Th><Th right>PO qty</Th><Th right>Invoiced qty</Th><Th right>Delivered qty</Th><Th right>PO price</Th><Th right>Invoice price</Th></tr></thead>
+            <thead className="border-b border-slate-200"><tr><Th first>Item</Th><Th right>PO qty</Th><Th right>Invoiced qty</Th><Th right>Delivered qty</Th><Th right>PO price</Th><Th right>Invoice price</Th><Th>Result</Th></tr></thead>
             <tbody>
               {po.lines.map((l) => {
                 const bad = "bg-rose-50 font-medium text-rose-700";
@@ -67,14 +69,15 @@ export default function PoTrace() {
                     <Td first><div className="font-medium text-slate-900">{l.sku}</div><div className="text-sm text-slate-500">{l.desc}</div></Td>
                     <Td right>{l.poQty}</Td>
                     <Td right className={l.invQty !== undefined && l.invQty !== l.poQty ? bad : ""}>{l.invQty ?? "–"}</Td>
-                    <Td right className={l.delQty !== undefined && l.delQty < l.poQty ? bad : ""}>{l.delQty ?? "–"}</Td>
+                    <Td right className={l.delQty !== undefined && l.outcome !== "cancelled" && l.delQty < l.poQty ? bad : ""}>{l.delQty ?? "–"}</Td>
                     <Td right>{rmFmt(l.poPrice)}</Td>
                     <Td right className={l.invPrice !== undefined && l.invPrice !== l.poPrice ? bad : ""}>{l.invPrice !== undefined ? rmFmt(l.invPrice) : "–"}</Td>
+                    <Td className="!whitespace-normal">{po.deliveredDate ? (<><span className={l.outcome === "delivered" ? "text-emerald-700" : l.outcome === "cancelled" ? "text-amber-700" : "font-medium text-rose-700"}>{OUTCOMES.find((o) => o.key === l.outcome)!.label}</span>{l.reason && <span className="block text-sm text-slate-500">{l.reason}</span>}</>) : <span className="text-slate-400">–</span>}</Td>
                   </tr>
                 );
               })}
             </tbody>
-            <tfoot><tr className="border-t border-slate-200"><Td first className="font-medium">PO total</Td><Td /><Td /><Td /><Td right className="font-medium">{rmFmt(poTotal(po))}</Td><Td right className={po.invoiceNo && invTotal(po) !== poTotal(po) ? "font-medium text-rose-700" : "font-medium"}>{po.invoiceNo ? rmFmt(invTotal(po)) : "–"}</Td></tr></tfoot>
+            <tfoot><tr className="border-t border-slate-200"><Td first className="font-medium">PO total</Td><Td /><Td /><Td /><Td right className="font-medium">{rmFmt(poTotal(po))}</Td><Td /><Td right className={po.invoiceNo && invTotal(po) !== poTotal(po) ? "font-medium text-rose-700" : "font-medium"}>{po.invoiceNo ? rmFmt(invTotal(po)) : "–"}</Td></tr></tfoot>
           </table>
         </div>
       </Card>
@@ -98,9 +101,9 @@ export default function PoTrace() {
           {found.length === 0 ? <p className="p-4 text-slate-500">No problems on this order.</p> : (
             <ul className="divide-y divide-slate-100">
               {found.map((f) => (
-                <li key={f.text} className="flex items-center justify-between gap-3 px-4 py-3">
+                <li key={f.key} className="flex items-center justify-between gap-3 px-4 py-3">
                   <span className="text-slate-800">{f.text}{f.reason && <span className="block text-sm text-slate-500">Reason: {f.reason}</span>}</span>
-                  {f.reason ? <Badge tone="green">Explained</Badge> : !canManage ? null : <button onClick={() => setModal({ key: f.key, text: f.text })} className={`${btnGhost} shrink-0 !px-3 !py-1 !text-sm`}>Add reason</button>}
+                  {f.reason ? <Badge tone="green">Explained</Badge> : !canManage || f.kind === "copy" ? null : f.kind === "credit" ? <button onClick={async () => setFileErr(await raiseCredit(po.id))} className={`${btnGhost} shrink-0 !px-3 !py-1 !text-sm`}>Credit note raised</button> : <button onClick={() => setModal({ key: f.key, text: f.text })} className={`${btnGhost} shrink-0 !px-3 !py-1 !text-sm`}>Add reason</button>}
                 </li>
               ))}
             </ul>

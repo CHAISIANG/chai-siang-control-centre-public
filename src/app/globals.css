@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+/*
+  Design tokens. Existing Tailwind colour names are remapped so every page picks up the new look:
+  slate  = cool concrete/ink greys
+  indigo = depot blue (primary actions, links, selected states)
+  signal = road-marking yellow, used sparingly (progress, active marker, focus)
+*/
+@theme {
+  --color-slate-50: #f4f6f6;
+  --color-slate-100: #e9eded;
+  --color-slate-200: #d8dedf;
+  --color-slate-300: #bfc8cb;
+  --color-slate-400: #94a0a6;
+  --color-slate-500: #66737b;
+  --color-slate-600: #4d5a63;
+  --color-slate-700: #36424b;
+  --color-slate-800: #222c34;
+  --color-slate-900: #151c22;
+  --color-slate-950: #0e1317;
+
+  --color-indigo-50: #e8f1f7;
+  --color-indigo-100: #d2e3ee;
+  --color-indigo-200: #a9c8dc;
+  --color-indigo-300: #7aa9c6;
+  --color-indigo-400: #4a87ae;
+  --color-indigo-500: #2f6f9c;
+  --color-indigo-600: #1f5c8a;
+  --color-indigo-700: #194b71;
+  --color-indigo-800: #143d5c;
+  --color-indigo-900: #0f2e46;
+
+  --color-signal: #f5b800;
+  --color-signal-soft: #fff4cc;
+  --color-concrete: #eef1f0;
+
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+  --radius-2xl: 8px;
+
+  --shadow-sm: 0 0 0 0 transparent;
+  --shadow-md: 0 1px 0 0 rgb(21 28 34 / 0.04);
+}
+
+@theme inline {
+  --font-sans: var(--nf-body), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--nf-display), "Arial Narrow", ui-sans-serif, sans-serif;
+}
+
+html { font-size: 17px; }
+
+/* Easier to tap and read: taller controls. */
+select, input[type="text"], input[type="search"], input:not([type]) { min-height: 42px; }
+
+body {
+  background: var(--color-concrete);
+  color: var(--color-slate-800);
+  font-family: var(--nf-body), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "tnum" 1;
+}
+
+
+/* Dark mode: the same tokens, reversed. The printed PAF form always stays white. */
+html.dark {
+  color-scheme: dark;
+  --color-white: #19222a;
+  --color-concrete: #0f161b;
+  --color-slate-50: #151d24;
+  --color-slate-100: #1e2933;
+  --color-slate-200: #2c3a45;
+  --color-slate-300: #40515e;
+  --color-slate-400: #72848f;
+  --color-slate-500: #98a8b2;
+  --color-slate-600: #b3c0c8;
+  --color-slate-700: #cdd6dc;
+  --color-slate-800: #e4eaed;
+  --color-slate-900: #f3f6f7;
+  --color-signal-soft: #3a3110;
+  --color-indigo-50: #14283a;
+  --color-indigo-100: #1b3a52;
+  --color-indigo-600: #3a86b8;
+  --color-indigo-700: #7aa9c6;
+  --color-indigo-800: #a9c8dc;
+  --color-emerald-50: #11301f; --color-emerald-700: #6bc593; --color-emerald-800: #93d6b2; --color-emerald-600: #34a56b;
+  --color-amber-50: #33270f; --color-amber-700: #e9b64d; --color-amber-800: #f2cb7c; --color-amber-500: #e0a42a;
+  --color-rose-50: #381a1e; --color-rose-700: #ee8d96; --color-rose-800: #f3a8af; --color-rose-600: #d9505d;
+  --color-sky-600: #4aa0d6;
+}
+html.dark .recharts-text, html.dark .recharts-legend-item-text { fill: #b3c0c8 !important; color: #b3c0c8 !important; }
+html.dark .recharts-cartesian-grid line { stroke: #2c3a45; }
+html.dark .recharts-tooltip-wrapper .recharts-default-tooltip { background: #19222a !important; border-color: #2c3a45 !important; }
+html.dark .recharts-tooltip-label, html.dark .recharts-tooltip-item { color: #e4eaed !important; }
+
+/* Visible keyboard focus everywhere. */
+:focus-visible { outline: 2px solid var(--color-signal); outline-offset: 2px; }
+
+/* Road-marking progress bar: asphalt track, yellow fill, dashed centre line. */
+.road { position: relative; height: 14px; background: #151c22; border-radius: 2px; overflow: hidden; }
+.road::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 2px; transform: translateY(-50%);
+  background: repeating-linear-gradient(90deg, rgb(255 255 255 / 0.55) 0 8px, transparent 8px 16px);
+}
+.road > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--color-signal); z-index: 1; }
+.road > b { position: absolute; top: -3px; bottom: -3px; width: 3px; background: #fff; z-index: 2; }
+
+/* Lorry plate. */
+.plate {
+  display: inline-block; font-family: var(--nf-display), "Arial Narrow", sans-serif; font-weight: 700; letter-spacing: 0.06em;
+  background: #fff7d1; color: #151c22; border: 2px solid #151c22; border-radius: 4px; padding: 0 8px; line-height: 1.35;
+}
+
+/* Printing a PAF claim: only the form (page 1) and the photos/remark (page 2). */
+@page { size: A4 portrait; margin: 8mm; }
+@media print {
+  body * { visibility: hidden; }
+  #paf-print, #paf-print *, #inv-print, #inv-print * { visibility: visible; }
+  #paf-print, #inv-print { position: absolute; left: 0; top: 0; width: 100%; }
+  .inv-navy { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .paf-modal-root { position: static !important; overflow: visible !important; background: none !important; padding: 0 !important; }
+  .no-print { display: none !important; }
+  .paf-extra { break-before: page; }
+}
+
+/* Distributor portal: staggered headline reveal. With motion reduced, animations are off and everything simply shows. */
+@keyframes pl-rise { from { opacity: 0; transform: translateY(0.55em); filter: blur(8px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes pl-draw { from { stroke-dashoffset: 340; } to { stroke-dashoffset: 0; } }
+.pl-word { display: inline-block; animation: pl-rise 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; animation-delay: calc(var(--i) * 95ms + 150ms); }
+.pl-fade { animation: pl-rise 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; animation-delay: calc(var(--i) * 95ms + 150ms); }
+.pl-draw { stroke-dasharray: 340; animation: pl-draw 1.4s ease-out 1s backwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+

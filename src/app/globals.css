@@ -111,13 +111,13 @@ html.dark .recharts-tooltip-label, html.dark .recharts-tooltip-item { color: #e4
   background: #fff7d1; color: #151c22; border: 2px solid #151c22; border-radius: 4px; padding: 0 8px; line-height: 1.35;
 }
 
-/* Printing a PAF claim: only the form (page 1) and the photos/remark (page 2). */
-@page { size: A4 portrait; margin: 8mm; }
+/* Printing a PAF claim: A4 portrait, narrow margins (6.35 mm), the whole form on one page, then the photos/remark on page 2. */
+@page { size: A4 portrait; margin: 6.35mm; }
 @media print {
   body * { visibility: hidden; }
   #paf-print, #paf-print *, #inv-print, #inv-print *, #po-sheet, #po-sheet * { visibility: visible; }
   #paf-print, #inv-print, #po-sheet { position: absolute; left: 0; top: 0; width: 100%; }
-  .inv-navy { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .inv-navy, #paf-print, #paf-print * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .paf-modal-root { position: static !important; overflow: visible !important; background: none !important; padding: 0 !important; }
   .no-print { display: none !important; }
   .paf-preview-wrap { position: static !important; overflow: visible !important; max-height: none !important; }

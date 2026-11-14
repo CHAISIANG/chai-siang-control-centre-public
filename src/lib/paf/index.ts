@@ -30,16 +30,18 @@ export type FormDef = {
   invoice: "manual" | "sumSell";
   cost: "manual" | "sumCost";
   pct?: "costOverSell";
-  photoBox?: string; // e.g. "I45:M63"
+  photoBox?: string; // e.g. "E54:O63": up to three photos side by side, below the lines
+  /** how the line numbers (column E or D) are written when a line is used */
+  numbering?: "roman" | "plain";
 };
 
 export const FORMS: Record<FormKey, FormDef> = {
-  fixed: { key: "fixed", label: "Fixed Display", short: "Fixed", layout: fixed as Layout, lines: { rows: [44, 52], cols: { num: "E", desc: "F", sell: "I", rm: "N", cost: "O" }, spanTo: { desc: "H", sell: "J", cost: "O" } }, totalCell: "L64", invoice: "manual", cost: "sumCost", photoBox: "I45:M63" },
-  addbbf: { key: "addbbf", label: "Additional Display / BBF", short: "Add Display", layout: addbbf as Layout, lines: { rows: [42, 52], cols: { num: "E", desc: "F", sell: "I", rm: "N", cost: "O" }, spanTo: { desc: "H", sell: "J", cost: "O" } }, totalCell: "L64", invoice: "manual", cost: "sumCost", photoBox: "I43:M63" },
-  offgrid: { key: "offgrid", label: "Off-Grid & Scan Sales", short: "Off-Grid", layout: offgrid as Layout, lines: { rows: [44, 54], cols: { num: "E", desc: "F", sell: "I", note: "L", cost: "O" }, spanTo: { desc: "H", sell: "K", cost: "R" } }, totalCell: "L56", invoice: "manual", cost: "sumCost" },
-  pkglp: { key: "pkglp", label: "Package Buy (LP)", short: "Package LP", layout: pkglp as Layout, lines: { rows: [45, 56], cols: { num: "D", desc: "E", rm: "I", sell: "J", pct: "L", cost: "P" }, spanTo: { desc: "H", sell: "J", cost: "P" } }, totalCell: "L58", invoice: "sumSell", cost: "sumCost", pct: "costOverSell" },
-  pkgws: { key: "pkgws", label: "Package Buy (WS)", short: "Package WS", layout: pkgws as Layout, lines: { rows: [45, 56], cols: { num: "D", desc: "E", rm: "I", sell: "J", pct: "L", cost: "P" }, spanTo: { desc: "H", sell: "J", cost: "P" } }, totalCell: "L58", invoice: "sumSell", cost: "sumCost", pct: "costOverSell" },
-  tnc: { key: "tnc", label: "T&C Related", short: "T&C", layout: tnc as Layout, lines: { rows: [46, 60], cols: { num: "F", desc: "G", sell: "I", pct: "L", note: "N" }, spanTo: { desc: "H", sell: "K", note: "R" } }, invoice: "manual", cost: "manual" },
+  fixed: { key: "fixed", label: "Fixed Display", short: "Fixed", layout: fixed as Layout, lines: { rows: [44, 52], cols: { num: "E", desc: "F", sell: "I", pct: "L", rm: "N", cost: "O" }, spanTo: { desc: "H", sell: "J", cost: "O" } }, totalCell: "L64", invoice: "manual", cost: "sumCost", pct: "costOverSell", numbering: "roman", photoBox: "E54:O63" },
+  addbbf: { key: "addbbf", label: "Additional Display / BBF", short: "Add Display", layout: addbbf as Layout, lines: { rows: [42, 52], cols: { num: "E", desc: "F", sell: "I", pct: "L", rm: "N", cost: "O" }, spanTo: { desc: "H", sell: "J", cost: "O" } }, totalCell: "L64", invoice: "manual", cost: "sumCost", pct: "costOverSell", numbering: "roman", photoBox: "E54:O63" },
+  offgrid: { key: "offgrid", label: "Off-Grid & Scan Sales", short: "Off-Grid", layout: offgrid as Layout, lines: { rows: [44, 54], cols: { num: "E", desc: "F", sell: "I", note: "L", cost: "O" }, spanTo: { desc: "H", sell: "K", cost: "R" } }, totalCell: "L56", invoice: "manual", cost: "sumCost", numbering: "plain" },
+  pkglp: { key: "pkglp", label: "Package Buy (LP)", short: "Package LP", layout: pkglp as Layout, lines: { rows: [45, 56], cols: { num: "D", desc: "E", rm: "I", sell: "J", pct: "L", cost: "P" }, spanTo: { desc: "H", sell: "J", cost: "P" } }, totalCell: "L58", invoice: "sumSell", cost: "sumCost", pct: "costOverSell", numbering: "plain" },
+  pkgws: { key: "pkgws", label: "Package Buy (WS)", short: "Package WS", layout: pkgws as Layout, lines: { rows: [45, 56], cols: { num: "D", desc: "E", rm: "I", sell: "J", pct: "L", cost: "P" }, spanTo: { desc: "H", sell: "J", cost: "P" } }, totalCell: "L58", invoice: "sumSell", cost: "sumCost", pct: "costOverSell", numbering: "plain" },
+  tnc: { key: "tnc", label: "T&C Related", short: "T&C", layout: tnc as Layout, lines: { rows: [46, 60], cols: { num: "F", desc: "G", sell: "I", pct: "L", note: "N" }, spanTo: { desc: "H", sell: "K", note: "R" } }, invoice: "manual", cost: "manual", numbering: "plain" },
 };
 export const FORM_KEYS = Object.keys(FORMS) as FormKey[];
 
@@ -79,6 +81,14 @@ export function signatureCells(layout: Layout) {
 let companyLine = "";
 export const setCompanyLine = (line: string) => { companyLine = line; };
 
+// The Distributor Representative's name is the same on every claim. It is kept in the database (app_settings), not in the code.
+let distributorRep = "";
+export const setDistributorRep = (name: string) => { distributorRep = name.trim(); };
+export const getDistributorRep = () => distributorRep;
+
+const ROMAN = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii", "xiii", "xiv", "xv", "xvi"];
+const lineLabel = (def: FormDef, i: number) => (def.numbering === "roman" ? `(${ROMAN[i] ?? i + 1})` : String(i + 1));
+
 export function blankValues(def: FormDef): Values {
   const v: Values = {};
   for (const [a, c] of Object.entries(def.layout.cells)) if (c.v != null) v[a] = typeof c.v === "string" ? c.v.replace("{{COMPANY_LINE}}", companyLine || "CHAI SIANG SDN. BHD.") : c.v;
@@ -87,12 +97,11 @@ export function blankValues(def: FormDef): Values {
   const { rows, cols } = def.lines;
   for (let r = rows[0]; r <= rows[1]; r++) for (const L of Object.values(cols)) v[`${L}${r}`] = "";
   // Keep the template's "(i)"/"1" style numbering label on the first line only.
-  if (def.key === "fixed" || def.key === "addbbf") v[`E${rows[0]}`] = "(i)";
   if (def.totalCell) v[def.totalCell] = "";
   const sig = signatureCells(def.layout);
   v[sig.name[0]] = ""; v[sig.name[1]] = "";
   // Names that appear on every form come from environment settings, not from the code.
-  v[sig.name[2]] = process.env.NEXT_PUBLIC_PAF_DISTRIBUTOR_REP ?? "";
+  v[sig.name[2]] = distributorRep || (process.env.NEXT_PUBLIC_PAF_DISTRIBUTOR_REP ?? "");
   v[sig.name[3]] = process.env.NEXT_PUBLIC_PAF_CD_REP ?? "";
   for (const d of sig.date) v[d] = "";
   return v;
@@ -116,5 +125,13 @@ export function recompute(def: FormDef, v: Values): Values {
   if (def.invoice === "sumSell") out.H35 = sell ? money(Math.round(sell)) : "";
   if (def.cost === "sumCost") out.H37 = cost ? money(cost) : "";
   if (def.totalCell) out[def.totalCell] = def.cost === "sumCost" ? (cost ? money(cost) : "") : out.H37 ?? "";
+  // Line numbers appear as each line is used: (i), (ii), (iii) on the display forms, 1, 2, 3 on the others.
+  if (cols.num) {
+    for (let r = rows[0]; r <= rows[1]; r++) {
+      const used = [cols.desc, cols.sell, cols.cost, cols.note, def.pct ? undefined : cols.pct].some((L) => L && (out[`${L}${r}`] ?? "").trim() !== "");
+      out[`${cols.num}${r}`] = used || (def.numbering === "roman" && r === rows[0]) ? lineLabel(def, r - rows[0]) : "";
+    }
+  }
+  if (distributorRep) out[signatureCells(def.layout).name[2]] = distributorRep;
   return out;
 }

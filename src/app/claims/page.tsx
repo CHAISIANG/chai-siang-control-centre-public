@@ -113,7 +113,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
   const [status, setStatus] = useState<ClaimStatus>(claim?.status ?? "Draft");
   const [remark, setRemark] = useState(claim?.remark ?? "");
   const [values, setValues] = useState<Values>(() => {
-    if (claim && Object.keys(claim.values).length) return claim.values;
+    if (claim && Object.keys(claim.values).length) return recompute(FORMS[claim.formKey], claim.values); // refreshes line numbers, Cost % and the fixed name on older claims
     const def = FORMS[claim?.formKey ?? "fixed"];
     const v = blankValues(def);
     const sig = signatureCells(def.layout);
@@ -343,7 +343,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
                   className={`mb-3 flex flex-col items-center gap-1 rounded-lg border-2 border-dashed px-3 py-5 text-center ${drag ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-slate-50"}`}>
                   <UploadCloud size={22} className="text-indigo-600" />
                   <span className="text-sm text-slate-700">Drag photos and documents here, or use the buttons above</span>
-                  <span className="text-xs text-slate-500">Photos show in the preview. The first photo goes into the photo box on the form.</span>
+                  <span className="text-xs text-slate-500">Photos show in the preview. The first three photos go into the photo box on the form.</span>
                 </div>
               )}
               <div className="flex flex-wrap gap-2">
@@ -353,7 +353,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={p.url} alt="" className="h-16 w-16 rounded border border-slate-200 object-cover" />
                     ) : <span className="flex h-16 w-16 items-center justify-center rounded border border-slate-200 text-xs text-slate-400">…</span>}
-                    {i === 0 && def.photoBox && <span className="absolute bottom-0 left-0 right-0 rounded-b bg-indigo-600/90 text-center text-[10px] text-white">On form</span>}
+                    {i < 3 && def.photoBox && <span className="absolute bottom-0 left-0 right-0 rounded-b bg-indigo-600/90 text-center text-[10px] text-white">On form</span>}
                     {editable && <button onClick={() => { setPhotos((x) => x.filter((it) => it.key !== p.key)); if (p.path || p.fileId) setRemoved((r) => [...r, p]); }} aria-label="Remove photo" className="absolute -right-1 -top-1 rounded-full bg-rose-600 p-0.5 text-white"><X size={10} /></button>}
                   </div>
                 ))}

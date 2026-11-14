@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { addr, checkboxCells, colLetter, colNum, parseAddr, signatureCells, type FormDef, type Values } from "@/lib/paf";
+import { addr, checkboxCells, colLetter, colNum, getDistributorRep, parseAddr, signatureCells, type FormDef, type Values } from "@/lib/paf";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 export const toDisplayDate = (iso: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso); return m ? `${m[3]}-${MONTHS[Number(m[2]) - 1]}-${m[1]}` : iso; };
@@ -82,6 +82,7 @@ export default function PafSheet({ def, values, editing = false, onChange, photo
     m[sig.name[1]] = "K"; m[sig.date[1]] = "K";
     m[sig.name[2]] = "N"; m[sig.name[3]] = "S";
     m[sig.date[2]] = "O"; m[sig.date[3]] = "S";
+    if (getDistributorRep()) delete m[sig.name[2]]; // fixed name, not typed
     return m;
   }, [def, sig]);
 
@@ -159,11 +160,15 @@ export default function PafSheet({ def, values, editing = false, onChange, photo
         {nodes}
         {photoRect && (
           <div style={{ position: "absolute", left: photoRect.x, top: photoRect.y, width: photoRect.w, height: photoRect.h, border: "1px solid #94a3b8", background: "#f8fafc", overflow: "hidden", zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {photos[0] ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={photos[0]} alt="Display photo" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+            {photos.length ? (
+              <div style={{ display: "flex", gap: 8, width: "100%", height: "100%", padding: 6, boxSizing: "border-box" }}>
+                {photos.slice(0, 3).map((u, i) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={i} src={u} alt={`Display photo ${i + 1}`} style={{ flex: 1, minWidth: 0, height: "100%", objectFit: "contain" }} />
+                ))}
+              </div>
             ) : (
-              <span style={{ fontSize: 22, color: "#94a3b8", fontFamily: "Arial" }}>Photo of display (upload below)</span>
+              <span style={{ fontSize: 22, color: "#94a3b8", fontFamily: "Arial" }}>Photos of the display (upload on the left)</span>
             )}
           </div>
         )}

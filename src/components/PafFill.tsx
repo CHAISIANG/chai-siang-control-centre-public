@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
-import { checkboxCells, lastNum, signatureCells, type FormDef, type Values } from "@/lib/paf";
+import { addr, checkboxCells, colNum, getDistributorRep, lastNum, signatureCells, type FormDef, type Values } from "@/lib/paf";
 import { toDisplayDate, toIso } from "./PafSheet";
 
 // A plain fill-in form for a PAF. Every field writes to the same cell of the sheet that the preview shows,
@@ -43,6 +43,18 @@ export default function PafFill({ def, values, onChange }: Props) {
   const dateBad = values.I7 && values.O7 && toIso(values.I7) && toIso(values.O7) && toIso(values.O7) < toIso(values.I7);
   const sellIsSum = def.invoice === "sumSell", costIsSum = def.cost === "sumCost";
   const isPkg = def.key.startsWith("pkg");
+  const fixedRep = getDistributorRep();
+  // Column titles come from the template itself, so the labels match the printed form.
+  const header = (L?: string): string | null => {
+    if (!L) return null;
+    for (let r = rows[0] - 1; r >= rows[0] - 4; r--) {
+      for (let c = colNum(L); c >= colNum(L) - 2 && c > 0; c--) {
+        const v = def.layout.cells[addr(c, r)]?.v;
+        if (typeof v === "string" && v.trim() && v.trim().length < 40 && !/investment$/i.test(v.trim()) && !v.trim().startsWith("(")) return v.trim();
+      }
+    }
+    return null;
+  };
 
   return (
     <div className="space-y-4">
@@ -92,10 +104,10 @@ export default function PafFill({ def, values, onChange }: Props) {
             <div className="mb-1.5 text-xs font-semibold text-slate-500">Line {i + 1}</div>
             <div className="grid grid-cols-2 gap-2">
               {cols.desc && <Field label="Description" className="col-span-2"><input className={cls} value={values[`${cols.desc}${r}`] ?? ""} onChange={(e) => onChange(`${cols.desc}${r}`, e.target.value)} /></Field>}
-              {cols.sell && <Field label={isPkg ? "Sell-out (RM)" : "Sell-out assumption"}><input className={cls} value={values[`${cols.sell}${r}`] ?? ""} onChange={(e) => onChange(`${cols.sell}${r}`, e.target.value)} /></Field>}
-              {cols.pct && <Field label="Cost %"><input className={cls} value={values[`${cols.pct}${r}`] ?? ""} disabled={!!def.pct} placeholder={def.pct ? "Worked out" : ""} onChange={(e) => onChange(`${cols.pct}${r}`, e.target.value)} /></Field>}
-              {cols.cost && <Field label="Cost of investment (RM)"><input className={cls} inputMode="decimal" value={values[`${cols.cost}${r}`] ?? ""} onChange={(e) => onChange(`${cols.cost}${r}`, e.target.value)} /></Field>}
-              {cols.note && <Field label="Note" className="col-span-2"><input className={cls} value={values[`${cols.note}${r}`] ?? ""} onChange={(e) => onChange(`${cols.note}${r}`, e.target.value)} /></Field>}
+              {cols.sell && <Field label={header(cols.sell) ?? (isPkg ? "Sell-out (RM)" : "Sell-out assumption")}><input className={cls} value={values[`${cols.sell}${r}`] ?? ""} onChange={(e) => onChange(`${cols.sell}${r}`, e.target.value)} /></Field>}
+              {cols.pct && <Field label={header(cols.pct) ?? "Cost %"}><input className={cls} value={values[`${cols.pct}${r}`] ?? ""} disabled={!!def.pct} placeholder={def.pct ? "Worked out" : ""} onChange={(e) => onChange(`${cols.pct}${r}`, e.target.value)} /></Field>}
+              {cols.cost && <Field label={header(cols.cost) ?? "Cost of investment (RM)"}><input className={cls} inputMode="decimal" value={values[`${cols.cost}${r}`] ?? ""} onChange={(e) => onChange(`${cols.cost}${r}`, e.target.value)} /></Field>}
+              {cols.note && <Field label={header(cols.note) ?? "Note"} className="col-span-2"><input className={cls} value={values[`${cols.note}${r}`] ?? ""} onChange={(e) => onChange(`${cols.note}${r}`, e.target.value)} /></Field>}
             </div>
           </div>
         ))}
@@ -106,7 +118,7 @@ export default function PafFill({ def, values, onChange }: Props) {
       <Section title="5. Names and dates" hint="Sign-off block at the bottom of the form.">
         {([["Customer representative", 0], ["Salesman", 1], ["Distributor representative", 2], ["CD representative", 3]] as const).map(([label, i]) => (
           <div key={label} className="grid grid-cols-2 gap-3">
-            <Field label={`${label}: name`}><input className={cls} value={values[sig.name[i]] ?? ""} onChange={(e) => onChange(sig.name[i], e.target.value)} /></Field>
+            <Field label={`${label}: name${i === 2 && fixedRep ? " (fixed)" : ""}`}><input className={cls} value={values[sig.name[i]] ?? ""} readOnly={i === 2 && !!fixedRep} onChange={(e) => onChange(sig.name[i], e.target.value)} /></Field>
             <Field label="Date"><input type="date" className={cls} value={toIso(values[sig.date[i]] ?? "")} onChange={(e) => onChange(sig.date[i], toDisplayDate(e.target.value))} /></Field>
           </div>
         ))}

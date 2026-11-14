@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./auth";
 import { buildCustomers, buildSalesmen, DAYS_ELAPSED, type ArRow, type Claim, type ClaimStatus, type Customer, type CustomerRow, type CustSalesRow, type Lorry, type MonthlyRow, type Salesman, type SalesmanRow } from "@/lib/mock";
-import { setCompanyLine, type FormKey } from "@/lib/paf";
+import { setCompanyLine, setDistributorRep, type FormKey } from "@/lib/paf";
 
 export type UploadRow = { report: string; file_name: string | null; row_count: number | null; status: string; uploaded_at: string };
 export type ClaimFile = { id: number; claimId: string; kind: "photo" | "document"; name: string; path: string | null };
@@ -66,7 +66,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         supabase.from("customers").select("code, name, channel, route_name, visit_day, payment_term, salesman_code").order("name").limit(2000),
         fetchClaims(),
         fetchLorries(),
-        supabase.from("app_settings").select("value").eq("key", "paf_company_line").maybeSingle(),
+        supabase.from("app_settings").select("key, value").in("key", ["paf_company_line", "paf_distributor_rep"]),
         // The report tables are optional: if they are missing or empty the screens simply show no balances.
         supabase.rpc("ar_summary"),
         supabase.from("customer_sales").select("code, ytd, ytd_ams, py_ams").limit(5000),
@@ -75,7 +75,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       ]);
       const arRows = (ar.data ?? []) as (ArRow & { as_at: string })[];
       const lastDay = ((dly.data ?? []) as { sale_date: string }[]).map((d) => d.sale_date).sort().pop();
-      if (st.data?.value) setCompanyLine(st.data.value as string);
+      for (const row of (st.data ?? []) as { key: string; value: string }[]) {
+        if (row.key === "paf_company_line") setCompanyLine(row.value);
+        if (row.key === "paf_distributor_rep") setDistributorRep(row.value);
+      }
       if (!active) return;
       const error = sm.error?.message ?? mo.error?.message ?? cu.error?.message ?? cl.error ?? lo.error;
       setState({

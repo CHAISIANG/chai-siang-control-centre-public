@@ -4,7 +4,7 @@ import { addr, checkboxCells, colLetter, colNum, parseAddr, signatureCells, type
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 export const toDisplayDate = (iso: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso); return m ? `${m[3]}-${MONTHS[Number(m[2]) - 1]}-${m[1]}` : iso; };
-const toIso = (d: string) => { const m = /^(\d{2})-([A-Za-z]{3})-(\d{4})$/.exec(d); return m ? `${m[3]}-${String(MONTHS.indexOf(m[2]) + 1).padStart(2, "0")}-${m[1]}` : ""; };
+export const toIso = (d: string) => { const m = /^(\d{2})-([A-Za-z]{3})-(\d{4})$/.exec(d); return m ? `${m[3]}-${String(MONTHS.indexOf(m[2]) + 1).padStart(2, "0")}-${m[1]}` : ""; };
 
 const BORDER_W: Record<string, string> = { thin: "1px solid", hair: "1px dotted", medium: "2px solid", thick: "3px solid", dotted: "1px dotted", dashed: "1px dashed", double: "3px double", mediumDashed: "2px dashed" };
 const bcss = (b: string[] | null) => (b ? `${BORDER_W[b[0]] ?? "1px solid"} #${b[1]}` : undefined);

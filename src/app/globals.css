@@ -120,6 +120,7 @@ html.dark .recharts-tooltip-label, html.dark .recharts-tooltip-item { color: #e4
   .inv-navy { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .paf-modal-root { position: static !important; overflow: visible !important; background: none !important; padding: 0 !important; }
   .no-print { display: none !important; }
+  .paf-preview-wrap { position: static !important; overflow: visible !important; max-height: none !important; }
   .paf-extra { break-before: page; }
 }
 

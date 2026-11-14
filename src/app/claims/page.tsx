@@ -1,13 +1,14 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, ImagePlus, Paperclip, Plus, Printer, X } from "lucide-react";
+import { Check, FileText, ImagePlus, Paperclip, Plus, Printer, UploadCloud, X } from "lucide-react";
 import { useRole } from "@/components/role";
 import { useData, type ClaimFile } from "@/components/data";
+import PafFill from "@/components/PafFill";
 import PafSheet, { toDisplayDate } from "@/components/PafSheet";
 import { Badge, Card, PageHeader, Td, Th } from "@/components/ui";
 import { rm, type Claim, type ClaimStatus } from "@/lib/mock";
 import { supabase } from "@/lib/supabase";
-import { blankValues, FORM_KEYS, FORMS, lastNum, recompute, signatureCells, type FormKey, type Values } from "@/lib/paf";
+import { blankValues, checkboxCells, FORM_KEYS, FORMS, lastNum, recompute, signatureCells, type FormKey, type Values } from "@/lib/paf";
 
 const tone: Record<ClaimStatus, "grey" | "amber" | "blue" | "green" | "red"> = {
   Draft: "grey", "Pending supervisor": "amber", Approved: "blue", "Sent to principal": "blue", Paid: "green", Rejected: "red",
@@ -132,9 +133,20 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
   const def = FORMS[formKey];
   const isMine = seesAll || claim?.salesmanCode === mySalesman;
   const editable = isNew ? can("claims_create") : status === "Draft" && can("claims_edit_draft") && isMine;
-  const [editing, setEditing] = useState(editable);
+  const [editing, setEditing] = useState(false);
+  const [drag, setDrag] = useState(false);
   const canApprove = can("claims_approve") && claim?.status === "Pending supervisor";
   const total = lastNum(values.H37);
+  const ticked = useMemo(() => checkboxCells(def.layout).some((b) => values[b.box] === "X"), [def, values]);
+  const lineRows = Array.from({ length: def.lines.rows[1] - def.lines.rows[0] + 1 }, (_, i) => def.lines.rows[0] + i);
+  const hasLine = lineRows.some((r) => lastNum(values[`${def.lines.cols.cost ?? def.lines.cols.sell ?? "I"}${r}`]) > 0 || (def.lines.cols.desc && (values[`${def.lines.cols.desc}${r}`] ?? "").trim() !== ""));
+  const checklist: { ok: boolean; text: string }[] = [
+    { ok: !!customer, text: "Customer chosen" },
+    { ok: !!values.I7 && !!values.O7, text: "Start and end dates filled in" },
+    { ok: ticked, text: "At least one box ticked (RE type, category or promotion type)" },
+    { ok: hasLine, text: "At least one line with a description or an amount" },
+    ...(def.photoBox ? [{ ok: photos.length > 0, text: "A photo of the display is attached" }] : []),
+  ];
   const custLabel = (c: { name: string; code: string }) => `${c.name} (${c.code})`;
   const custInput = useMemo(() => { const c = customers.find((x) => x.code === customerCode); return c && customer === c.name ? custLabel(c) : customer; }, [customers, customerCode, customer]);
 
@@ -180,6 +192,13 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
     const next = Array.from(list).slice(0, Math.max(0, 6 - photos.length)).map((f) => ({ key: `n${Date.now()}${f.name}`, name: f.name, file: f, url: URL.createObjectURL(f) }));
     setPhotos((p) => [...p, ...next]);
     if (photoInput.current) photoInput.current.value = "";
+  }
+  function addAny(list: FileList | File[] | null) {
+    if (!list) return;
+    const arr = Array.from(list);
+    const imgs = arr.filter((f) => f.type.startsWith("image/")), other = arr.filter((f) => !f.type.startsWith("image/"));
+    if (imgs.length) setPhotos((p) => [...p, ...imgs.slice(0, Math.max(0, 6 - p.length)).map((f) => ({ key: `n${Date.now()}${f.name}`, name: f.name, file: f, url: URL.createObjectURL(f) }))]);
+    if (other.length) setDocs((p) => [...p, ...other.map((f) => ({ key: `n${Date.now()}${f.name}`, name: f.name, file: f }))]);
   }
   function addDocs(list: FileList | null) {
     if (!list) return;
@@ -247,7 +266,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
           </div>
           <Badge tone={tone[status]}>{status}</Badge>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {editable && <button onClick={() => setEditing(!editing)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">{editing ? "Preview" : "Edit form"}</button>}
+            
             <button onClick={() => window.print()} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"><Printer size={14} /> Print / PDF</button>
             {editable && (
               <>
@@ -288,31 +307,24 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
           </div>
         )}
 
-        <div className="p-3 sm:p-5">
-          {editing && <p className="no-print mb-2 rounded bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800">Type directly into the highlighted cells and click the boxes to tick them. Totals and percentages calculate by themselves.</p>}
-          <div id="paf-print">
-            <PafSheet def={def} values={values} editing={editing} onChange={setValue} photos={photos.map((p) => p.url).filter((u): u is string => !!u)} />
-            <section className="paf-extra mt-6">
-              <h3 className="text-sm font-semibold text-slate-800">{claim?.id ?? "New claim"} · {customer}</h3>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{remark ? `Remark: ${remark}` : "Remark: –"}</p>
-              {docs.length > 0 && <p className="mt-2 text-xs text-slate-500">Supporting documents: {docs.map((d) => d.name).join(", ")}</p>}
-              {photos.length > 0 && (
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  {photos.map((p) => p.url && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img key={p.key} src={p.url} alt={p.name} className="max-h-[420px] w-full rounded border border-slate-200 object-contain" />
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
+        <div className="grid gap-4 p-3 sm:p-5 lg:grid-cols-[minmax(340px,5fr)_minmax(0,7fr)]">
+          <div className="no-print min-w-0 space-y-4">
+            {editable && (
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="mb-1.5 text-sm font-semibold text-slate-800">Ready to submit?</div>
+                <ul className="space-y-1">
+                  {checklist.map((c) => <li key={c.text} className={`flex items-center gap-2 text-sm ${c.ok ? "text-emerald-700" : "text-slate-500"}`}>{c.ok ? <Check size={15} /> : <span className="inline-block h-3.5 w-3.5 rounded-full border border-slate-300" />}{c.text}</li>)}
+                </ul>
+              </div>
+            )}
+            {editable && <PafFill key={def.key} def={def} values={values} onChange={setValue} />}
 
-          <div className="no-print mt-5 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border border-slate-200 p-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-3">
               <div className="mb-2 text-sm font-semibold text-slate-700">Remark / description</div>
               <textarea value={remark} disabled={!editable} onChange={(e) => setRemark(e.target.value)} rows={3} placeholder="e.g. Display set up as per agreed plan, photos taken 26 Jan." className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-50" />
             </div>
-            <div className="rounded-lg border border-slate-200 p-3">
+
+            <div className="rounded-lg border border-slate-200 bg-white p-3">
               <div className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-700">
                 <span>Photos &amp; supporting documents</span>
                 {editable && (
@@ -324,23 +336,58 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
               </div>
               <input ref={photoInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addPhotos(e.target.files)} />
               <input ref={docInput} type="file" multiple className="hidden" onChange={(e) => addDocs(e.target.files)} />
+              {editable && (
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+                  onDrop={(e) => { e.preventDefault(); setDrag(false); addAny(e.dataTransfer.files); }}
+                  className={`mb-3 flex flex-col items-center gap-1 rounded-lg border-2 border-dashed px-3 py-5 text-center ${drag ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-slate-50"}`}>
+                  <UploadCloud size={22} className="text-indigo-600" />
+                  <span className="text-sm text-slate-700">Drag photos and documents here, or use the buttons above</span>
+                  <span className="text-xs text-slate-500">Photos show in the preview. The first photo goes into the photo box on the form.</span>
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
-                {photos.map((p) => (
+                {photos.map((p, i) => (
                   <div key={p.key} className="relative">
                     {p.url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={p.url} alt="" className="h-16 w-16 rounded border border-slate-200 object-cover" />
                     ) : <span className="flex h-16 w-16 items-center justify-center rounded border border-slate-200 text-xs text-slate-400">…</span>}
-                    {editable && <button onClick={() => { setPhotos((x) => x.filter((i) => i.key !== p.key)); if (p.path || p.fileId) setRemoved((r) => [...r, p]); }} aria-label="Remove photo" className="absolute -right-1 -top-1 rounded-full bg-rose-600 p-0.5 text-white"><X size={10} /></button>}
+                    {i === 0 && def.photoBox && <span className="absolute bottom-0 left-0 right-0 rounded-b bg-indigo-600/90 text-center text-[10px] text-white">On form</span>}
+                    {editable && <button onClick={() => { setPhotos((x) => x.filter((it) => it.key !== p.key)); if (p.path || p.fileId) setRemoved((r) => [...r, p]); }} aria-label="Remove photo" className="absolute -right-1 -top-1 rounded-full bg-rose-600 p-0.5 text-white"><X size={10} /></button>}
                   </div>
                 ))}
                 {docs.map((d) => (
                   <span key={d.key} className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-xs text-slate-600"><Paperclip size={11} />{d.name}
-                    {editable && <button onClick={() => { setDocs((x) => x.filter((i) => i.key !== d.key)); if (d.path || d.fileId) setRemoved((r) => [...r, d]); }} aria-label={`Remove ${d.name}`}><X size={11} /></button>}
+                    {editable && <button onClick={() => { setDocs((x) => x.filter((it) => it.key !== d.key)); if (d.path || d.fileId) setRemoved((r) => [...r, d]); }} aria-label={`Remove ${d.name}`}><X size={11} /></button>}
                   </span>
                 ))}
-                {!photos.length && !docs.length && <span className="text-xs text-slate-400">Nothing attached yet. The first photo goes into the photo box on the form (where the template has one); the rest print on page 2.</span>}
+                {!photos.length && !docs.length && <span className="text-xs text-slate-400">Nothing attached yet.</span>}
               </div>
+            </div>
+          </div>
+
+          <div className="paf-preview-wrap min-w-0 lg:sticky lg:top-[68px] lg:max-h-[calc(100vh-88px)] lg:self-start lg:overflow-auto">
+            <div className="no-print mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+              <span className="font-medium text-slate-700">Live preview: this is what prints</span>
+              {editable && <button onClick={() => setEditing(!editing)} className="rounded-md border border-slate-300 px-2 py-1 hover:bg-slate-50">{editing ? "Stop typing on the form" : "Type on the form itself"}</button>}
+            </div>
+            {editing && <p className="no-print mb-2 rounded bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800">Type directly into the highlighted cells and click the boxes to tick them. The panel on the left updates too.</p>}
+            <div id="paf-print">
+              <PafSheet def={def} values={values} editing={editing && editable} onChange={setValue} photos={photos.map((p) => p.url).filter((u): u is string => !!u)} />
+              <section className="paf-extra mt-6">
+                <h3 className="text-sm font-semibold text-slate-800">{claim?.id ?? "New claim"} · {customer}</h3>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{remark ? `Remark: ${remark}` : "Remark: –"}</p>
+                {docs.length > 0 && <p className="mt-2 text-xs text-slate-500">Supporting documents: {docs.map((d) => d.name).join(", ")}</p>}
+                {photos.length > 0 && (
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    {photos.map((p) => p.url && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img key={p.key} src={p.url} alt={p.name} className="max-h-[420px] w-full rounded border border-slate-200 object-contain" />
+                    ))}
+                  </div>
+                )}
+              </section>
             </div>
           </div>
         </div>

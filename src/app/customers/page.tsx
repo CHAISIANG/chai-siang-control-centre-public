@@ -4,26 +4,27 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { useRole } from "@/components/role";
 import { useData } from "@/components/data";
 import { Badge, Card, PageHeader, Td, Th } from "@/components/ui";
-import { buckets, fmt, pct, rm } from "@/lib/mock";
+import { buckets, fmt, rm } from "@/lib/mock";
 
 export default function Customers() {
   const { filterSalesman } = useRole();
-  const { customers, salesmen } = useData();
+  const { customers, salesmen, asAt } = useData();
   const [q, setQ] = useState("");
   const [onlyOver, setOnlyOver] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const base = filterSalesman ? customers.filter((c) => c.salesman === filterSalesman) : customers;
   const rows = base
     .filter((c) => c.name.toLowerCase().includes(q.toLowerCase()) || c.code.toLowerCase().includes(q.toLowerCase()))
-    .filter((c) => !onlyOver || c.outstanding > c.creditLimit)
-    .sort((a, b) => b.outstanding / b.creditLimit - a.outstanding / a.creditLimit);
+    .filter((c) => !onlyOver || c.aging[3] + c.aging[4] > 0)
+    .filter((c) => c.outstanding > 0 || q.length > 0)
+    .sort((a, b) => b.outstanding - a.outstanding);
   const shown = showAll ? rows : rows.slice(0, 40);
   const totals = buckets.map((b, i) => ({ bucket: b, value: base.reduce((s, c) => s + c.aging[i], 0) }));
   const tone = ["#9db4c2", "#5f8aa6", "#f5b800", "#e07b1a", "#c0392b"];
 
   return (
     <>
-      <PageHeader title="Customers, Aging & Credit Limit" sub="Outstanding balances by age and credit utilisation" />
+      <PageHeader title="Customers & Aging" sub={`Who owes us and how late, from the aging report${asAt ? ` as at ${asAt.slice(8)}/${asAt.slice(5, 7)}/${asAt.slice(0, 4)}` : ""}. Credit limits are not in the reports yet, so they are not shown.`} />
       <Card title="Total receivable by age (RM)">
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
@@ -41,25 +42,25 @@ export default function Customers() {
       <Card className="mt-4" title={`Customers (${rows.length}), amounts in RM`}
         right={
           <div className="flex w-full items-center gap-3 sm:w-auto">
-            <label className="flex shrink-0 items-center gap-2 text-sm text-slate-600"><input className="h-5 w-5" type="checkbox" checked={onlyOver} onChange={(e) => setOnlyOver(e.target.checked)} /> Over limit only</label>
+            <label className="flex shrink-0 items-center gap-2 text-sm text-slate-600"><input className="h-5 w-5" type="checkbox" checked={onlyOver} onChange={(e) => setOnlyOver(e.target.checked)} /> 60+ days late only</label>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name / code" className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 text-base sm:flex-none" />
           </div>
         }>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="border-b border-slate-200">
-              <tr><Th first>Customer</Th><Th>Salesman</Th><Th right>Credit limit</Th><Th right>Outstanding</Th><Th>Credit used</Th>{buckets.map((b) => <Th key={b} right>{b}</Th>)}</tr>
+              <tr><Th first>Customer</Th><Th>Salesman</Th><Th right>Sales this year</Th><Th right>Outstanding</Th><Th>Late 60+ days</Th>{buckets.map((b) => <Th key={b} right>{b}</Th>)}</tr>
             </thead>
             <tbody>
               {shown.map((c) => {
-                const u = pct(c.outstanding, c.creditLimit);
+                const late = c.aging[3] + c.aging[4];
                 return (
                   <tr key={c.code} className="border-b border-slate-100 last:border-0">
                     <Td first><b>{c.name}</b><div className="text-xs text-slate-400">{c.code}, {c.route}, {c.paymentTerm}</div></Td>
                     <Td>{salesmen.find((s) => s.code === c.salesman)?.name}</Td>
-                                        <Td right>{fmt(c.creditLimit)}</Td><Td right>{fmt(c.outstanding)}</Td>
-                    <Td><Badge tone={u > 100 ? "red" : u > 80 ? "amber" : "green"}>{u}%{u > 100 ? " over" : ""}</Badge></Td>
-                    {c.aging.map((a, i) => <Td key={i} right className={i === 4 && a > 0 ? "font-medium text-rose-600" : ""}>{a ? fmt(a) : "–"}</Td>)}
+                    <Td right>{c.ytdSales ? fmt(Math.round(c.ytdSales)) : "–"}</Td><Td right>{fmt(Math.round(c.outstanding))}</Td>
+                    <Td>{late > 0 ? <Badge tone={c.aging[4] > 0 ? "red" : "amber"}>{fmt(Math.round(late))}</Badge> : <span className="text-slate-400">–</span>}</Td>
+                    {c.aging.map((a, i) => <Td key={i} right className={i === 4 && a > 0 ? "font-medium text-rose-600" : ""}>{a ? fmt(Math.round(a)) : "–"}</Td>)}
                   </tr>
                 );
               })}

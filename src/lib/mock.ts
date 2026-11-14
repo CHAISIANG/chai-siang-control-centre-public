@@ -1,7 +1,7 @@
 import type { FormKey } from "./paf";
 
-// Shapes used by the pages. Real rows come from Supabase (salesmen, DA1 monthly figures, customers, claims, lorries).
-// Anything the database does not have yet (aging, credit limits, collection, deliveries, November) is sample data
+// Shapes used by the pages. Real rows come from Supabase (salesmen, monthly sales and coverage, customers, open invoices, claims, lorries).
+// Anything the database does not have yet (credit limits, collection, deliveries) is sample data
 // generated here with a seeded random generator, so it looks the same on every load.
 
 function rng(seed: number) {
@@ -31,22 +31,25 @@ export type Salesman = { code: string; name: string; area: string; stats: MonthS
 export type SalesmanRow = { code: string; name: string; area: string | null };
 export type MonthlyRow = { salesman_code: string; month: number; rl_acct: number | null; active_acct: number | null; erc: number | null; sales_target: number | null; net_sales: number | null };
 
-export function buildSalesmen(rows: SalesmanRow[], monthly: MonthlyRow[]): Salesman[] {
+export function buildSalesmen(rows: SalesmanRow[], monthly: MonthlyRow[], day: number = DAYS_ELAPSED): Salesman[] {
   return rows.map((s) => {
     const rnd = rng(hash(s.code));
     const mine = new Map(monthly.filter((m) => m.salesman_code === s.code).map((m) => [m.month, m]));
+    const prorate = day / DAYS_IN_MONTH;
     const stats: MonthStat[] = MONTHS.map((_, i) => {
-      if (i < NOV) {
-        const m = mine.get(i + 1);
-        const sales = Number(m?.net_sales ?? 0);
-        return { rl: m?.rl_acct ?? 0, active: m?.active_acct ?? 0, erc: Number(m?.erc ?? 0), target: Number(m?.sales_target ?? 0), sales, collected: Math.round(sales * (0.7 + rnd() * 0.27)) };
-      }
+      const m = mine.get(i + 1);
       const oct = mine.get(10);
-      const prorate = DAYS_ELAPSED / DAYS_IN_MONTH;
+      if (i < NOV || m) {
+        // A real month. November is month to date; the coverage report has no November target, so October's target is pro-rated.
+        const sales = Number(m?.net_sales ?? 0);
+        let target = Number(m?.sales_target ?? 0);
+        if (i === NOV && !target) target = Math.round(Number(oct?.sales_target ?? 0) * prorate);
+        return { rl: m?.rl_acct ?? 0, active: m?.active_acct ?? 0, erc: Number(m?.erc ?? 0), target, sales, collected: 0 };
+      }
       const sales = Math.round(Number(oct?.net_sales ?? 0) * prorate * (0.8 + rnd() * 0.4));
       const rl = oct?.rl_acct ?? 0;
       const active = Math.round((oct?.active_acct ?? 0) * (0.55 + rnd() * 0.3));
-      return { rl, active, erc: rl ? Math.round((active / rl) * 10000) / 100 : 0, target: Math.round(Number(oct?.sales_target ?? 0) * prorate), sales, collected: Math.round(sales * (0.6 + rnd() * 0.3)) };
+      return { rl, active, erc: rl ? Math.round((active / rl) * 10000) / 100 : 0, target: Math.round(Number(oct?.sales_target ?? 0) * prorate), sales, collected: 0 };
     });
     return { code: s.code, name: s.name, area: s.area ?? "", stats };
   });
@@ -58,12 +61,11 @@ export const sumStats = (list: Salesman[], mi: number): MonthStat => {
   return t;
 };
 
-/** Daily November chart (sample): spreads the month-to-date total across the days so far. */
-export function buildDailySales(nov: MonthStat) {
-  const rnd = rng(77);
-  const weights = Array.from({ length: DAYS_ELAPSED }, (_, i) => ([7, 8].includes(i + 1) ? 0.25 : 0.8 + rnd() * 0.5));
-  const wsum = weights.reduce((a, b) => a + b, 0);
-  return weights.map((w, i) => ({ day: `${i + 1} Nov`, sales: Math.round((w / wsum) * nov.sales), target: Math.round((nov.target / wsum) * ([7, 8].includes(i + 1) ? 0.25 : 1)) }));
+export type DailyRow = { sale_date: string; net: number | string; invoices: number | string };
+/** Daily November chart from the invoice lines. The target line is the target to date spread evenly over the days so far. */
+export function buildDaily(rows: DailyRow[], targetToDate: number, day: number) {
+  const per = day ? targetToDate / day : 0;
+  return rows.map((r) => ({ day: `${Number(r.sale_date.slice(8, 10))} Nov`, sales: Math.round(Number(r.net)), target: Math.round(per) }));
 }
 
 export const buckets = ["Current", "1–30", "31–60", "61–90", "90+"] as const;
@@ -76,27 +78,39 @@ export type Customer = {
   visit: string;
   salesman: string; // code
   paymentTerm: string;
-  creditLimit: number; // sample
-  outstanding: number; // sample
-  aging: number[]; // sample, by bucket
-  lastInvoice: string; // sample
+  creditLimit: number; // 0 = not known: credit limits are not in the reports yet
+  outstanding: number;
+  aging: number[]; // by bucket, from the aging report
+  lastInvoice: string;
+  ytdSales: number; // net sales this year (customer report)
+  ytdAms: number; // monthly average this year
+  pyAms: number; // monthly average last year
 };
 
 export type CustomerRow = { code: string; name: string; channel: string | null; route_name: string | null; visit_day: string | null; payment_term: string | null; salesman_code: string | null };
+export type ArRow = { cust_code: string; customer: string; agent: string | null; total: number | string; b_current: number | string; b_30: number | string; b_60: number | string; b_90: number | string; b_over90: number | string };
+export type CustSalesRow = { code: string; ytd: number | string; ytd_ams: number | string; py_ams: number | string };
+
+/** The aging report prints customer 123; the customer list calls it MY01C00123. */
+export const custCodeOf = (code: string) => (/^\d+$/.test(code) ? `MY01C${code.padStart(5, "0")}` : code);
+const agentCode = (a: string | null) => (a && /^\d{1,2}$/.test(a) ? `MY01S${a.padStart(5, "0")}` : "");
 
 const cleanTerm = (t: string | null) => (t === "PT00" ? "Cash" : (t ?? "").replace(" Due n", "").replace("within ", "≤ "));
-export function buildCustomers(rows: CustomerRow[]): Customer[] {
-  return rows.map((c) => {
-    const rnd = rng(hash(c.code));
-    const creditLimit = [5000, 10000, 20000, 30000, 50000, 80000][Math.floor(rnd() * 6)];
-    const outstanding = Math.round(creditLimit * (0.1 + rnd() * 1.02));
-    const weights = [0.2 + rnd() * 0.5, 0.1 + rnd() * 0.3, rnd() * 0.3, rnd() * 0.2, rnd() > 0.7 ? rnd() * 0.25 : 0];
-    const wsum = weights.reduce((a, b) => a + b, 0);
+export function buildCustomers(rows: CustomerRow[], ar: ArRow[] = [], sales: CustSalesRow[] = []): Customer[] {
+  const owed = new Map(ar.map((a) => [custCodeOf(a.cust_code), a]));
+  const sold = new Map(sales.map((x) => [x.code, x]));
+  const known = new Set(rows.map((c) => c.code));
+  // A customer that owes money but is missing from the customer list still has to be shown.
+  const extra: CustomerRow[] = ar.filter((a) => !known.has(custCodeOf(a.cust_code))).map((a) => ({ code: custCodeOf(a.cust_code), name: a.customer, channel: null, route_name: null, visit_day: null, payment_term: null, salesman_code: agentCode(a.agent) || null }));
+  return [...rows, ...extra].map((c) => {
+    const a = owed.get(c.code);
+    const x = sold.get(c.code);
     return {
       code: c.code, name: c.name, channel: c.channel ?? "", route: (c.route_name ?? "").toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase()), visit: c.visit_day ?? "",
       salesman: c.salesman_code ?? "", paymentTerm: cleanTerm(c.payment_term),
-      creditLimit, outstanding, aging: weights.map((w) => Math.round((w / wsum) * outstanding)),
-      lastInvoice: `${Math.floor(1 + rnd() * 12)} Nov 2026`,
+      creditLimit: 0, outstanding: a ? Number(a.total) : 0,
+      aging: a ? [Number(a.b_current), Number(a.b_30), Number(a.b_60), Number(a.b_90), Number(a.b_over90)] : [0, 0, 0, 0, 0],
+      lastInvoice: "", ytdSales: x ? Number(x.ytd) : 0, ytdAms: x ? Number(x.ytd_ams) : 0, pyAms: x ? Number(x.py_ams) : 0,
     };
   });
 }

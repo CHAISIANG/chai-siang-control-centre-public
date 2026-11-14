@@ -1,36 +1,42 @@
 "use client";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CheckCircle2, Circle } from "lucide-react";
 import { useRole } from "@/components/role";
 import { useData } from "@/components/data";
 import { Badge, Card, Kpi, PageHeader, RoadBar } from "@/components/ui";
-import { buildDailySales, DAYS_ELAPSED, drivers, fmt, getPendingInvoices, MONTHS, NOV, pct, rm, rmK, sumStats } from "@/lib/mock";
+import { supabase } from "@/lib/supabase";
+import { buildDaily, drivers, fmt, getPendingInvoices, MONTHS, NOV, pct, rm, rmK, sumStats, type DailyRow } from "@/lib/mock";
 
 const PANELS = ["Sales vs target", "Coverage (RL / Active / ERC)", "Collection", "Deliveries", "Claims"];
 
 export default function Dashboard() {
   const { filterSalesman, can, verified, toggleVerified } = useRole();
-  const { salesmen, customers, claims } = useData();
-  const dailySales = useMemo(() => buildDailySales(sumStats(salesmen, NOV)), [salesmen]);
+  const { salesmen, customers, claims, mtdDay, asAt } = useData();
+  const [dailyRows, setDailyRows] = useState<DailyRow[]>([]);
   const pendingInvoices = useMemo(() => getPendingInvoices(customers), [customers]);
   const [mi, setMi] = useState(NOV);
   const [pickSm, setPickSm] = useState("all");
   const sel = filterSalesman ?? (pickSm === "all" ? null : pickSm);
+  useEffect(() => {
+    let active = true;
+    void supabase.rpc("sales_daily", { p_rep: sel }).then(({ data }) => { if (active) setDailyRows((data ?? []) as DailyRow[]); });
+    return () => { active = false; };
+  }, [sel]);
   const list = sel ? salesmen.filter((s) => s.code === sel) : salesmen;
   const first = list[0];
   const st = sumStats(list, mi);
   const isNov = mi === NOV;
   const custs = sel ? customers.filter((c) => c.salesman === sel) : customers;
-  const overLimit = custs.filter((c) => c.outstanding > c.creditLimit);
+  const late90 = custs.filter((c) => c.aging[4] > 0).sort((a, b) => b.aging[4] - a.aging[4]);
   const overdue90 = custs.reduce((s, c) => s + c.aging[4], 0);
+  const owed = custs.reduce((s, c) => s + c.outstanding, 0);
+  const overdue60 = custs.reduce((s, c) => s + c.aging[3] + c.aging[4], 0);
   const del = drivers.reduce((a, d) => ({ t: a.t + d.total, d: a.d + d.delivered, f: a.f + d.failed }), { t: 0, d: 0, f: 0 });
   const myClaims = sel ? claims.filter((c) => c.salesman === (first?.name ?? "")) : claims;
   const pendingClaims = myClaims.filter((c) => c.status === "Pending supervisor");
-  // Daily chart is stored for the whole company; scale it to the selected salesman's share.
-  const share = sel ? st.sales / Math.max(1, sumStats(salesmen, NOV).sales) : 1;
-  const daily = dailySales.map((d) => ({ ...d, sales: Math.round(d.sales * share), target: Math.round(d.target * (sel ? st.target / Math.max(1, sumStats(salesmen, NOV).target) : 1)) }));
+  const daily = buildDaily(dailyRows, sumStats(list, NOV).target, mtdDay);
   const salesPct = pct(st.sales, st.target);
   const showLogistics = !filterSalesman && can("page_logistics");
   // Jan–Oct only: Nov is a part-month and would look like a false collapse.
@@ -44,17 +50,17 @@ export default function Dashboard() {
   const attention: { tone: "red" | "amber" | "blue"; tag: string; text: string; href: string }[] = [
     ...(behind.length ? [{ tone: "red" as const, tag: "Sales", text: `${behind.length} of ${list.length} salesmen are below 90% of target: ${behind.map((s) => s.name).join(", ")}.`, href: "/sales" }] : []),
     ...(lowCover.length ? [{ tone: "amber" as const, tag: "Coverage", text: `${lowCover.length} salesmen reached fewer than 60% of their accounts: ${lowCover.map((s) => `${s.name} (${s.stats[mi].erc}%)`).join(", ")}.`, href: "/sales" }] : []),
-    ...(overLimit.length ? [{ tone: "amber" as const, tag: "Credit", text: `${overLimit.length} customers are over their credit limit. ${rmK(overdue90)} is overdue by 90+ days.`, href: "/customers" }] : []),
+    ...(late90.length ? [{ tone: "amber" as const, tag: "Collection", text: `${late90.length} customers have invoices more than 90 days late, ${rmK(overdue90)} in all. ${rmK(owed)} is owed to us.`, href: "/customers" }] : []),
     ...(pendingClaims.length ? [{ tone: "blue" as const, tag: "Claims", text: `${pendingClaims.length} claims (${rm(pendingClaims.reduce((s, c) => s + c.amount, 0))}) are waiting for the supervisor.`, href: "/claims" }] : []),
     ...(showLogistics && (toDeliver > 0 || del.f > 0) ? [{ tone: "amber" as const, tag: "Delivery", text: `${toDeliver} invoices still to deliver today and ${del.f} failed deliveries to reschedule.`, href: "/logistics" }] : []),
   ];
-  const monthLabel = isNov ? `Nov 2026 MTD (1–${DAYS_ELAPSED} Nov)` : `${MONTHS[mi]} 2026`;
+  const monthLabel = isNov ? `Nov 2026 MTD (1–${mtdDay} Nov)` : `${MONTHS[mi]} 2026`;
 
   return (
     <>
       <PageHeader
         title={filterSalesman ? `My Dashboard · ${(first?.name ?? "")}` : "Company Dashboard"}
-        sub={isNov ? `${monthLabel}. November is sample data; January to October come from your DA1 report.` : `${monthLabel}, from your DA1 report.`}
+        sub={isNov ? `${monthLabel}, from your coverage and sales reports. November has no target in the report, so October's target is used pro-rata.` : `${monthLabel}, from your coverage and net sales report.`}
         right={
           <div className="flex flex-wrap gap-2">
             <select className={sel2} value={mi} onChange={(e) => setMi(Number(e.target.value))} aria-label="Month">
@@ -96,8 +102,8 @@ export default function Dashboard() {
         </div>
         <div className="grid grid-cols-2 lg:col-span-3 [&>*]:border-slate-200 [&>*:nth-child(n+3)]:border-t [&>*:nth-child(even)]:border-l">
           <Kpi label="Accounts that bought (ERC)" value={`${st.erc}%`} sub={`${fmt(st.active)} of ${fmt(st.rl)} registered accounts`} tone={st.erc >= 70 ? "good" : st.erc >= 50 ? "warn" : "bad"} pct={st.erc} />
-          <Kpi label="Collected (sample)" value={rmK(st.collected)} sub={`${pct(st.collected, st.sales)}% of sales`} tone={pct(st.collected, st.sales) >= 80 ? "good" : "warn"} pct={pct(st.collected, st.sales)} />
-          <Kpi label="Over credit limit (sample)" value={`${overLimit.length} customers`} sub={`${rmK(overdue90)} overdue 90+ days`} tone={overLimit.length > 10 ? "bad" : "warn"} />
+          <Kpi label={`Owed to us${asAt ? ` (aging ${asAt.slice(8)}/${asAt.slice(5, 7)})` : ""}`} value={rmK(owed)} sub={`${rmK(overdue60)} is more than 60 days late`} tone={owed && overdue60 / owed > 0.15 ? "bad" : "warn"} />
+          <Kpi label="Over 90 days late" value={rmK(overdue90)} sub={`${late90.length} customers`} tone={late90.length > 10 ? "bad" : late90.length ? "warn" : "good"} />
           {showLogistics ? (
             <Kpi label="Delivered today (sample)" value={`${del.d} of ${del.t}`} sub={`${del.t - del.d - del.f} pending, ${del.f} failed`} tone={pct(del.d, del.t) >= 80 ? "good" : "warn"} pct={pct(del.d, del.t)} />
           ) : (
@@ -108,7 +114,7 @@ export default function Dashboard() {
 
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
         {isNov ? (
-          <Card title="Daily sales vs daily target (Nov, sample)">
+          <Card title="Daily sales vs daily target (Nov)">
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={daily}>
@@ -140,7 +146,7 @@ export default function Dashboard() {
             </div>
           </Card>
         )}
-        <Card title="Monthly net sales vs target (Jan–Oct real)">
+        <Card title="Monthly net sales vs target (Jan–Oct)">
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trend}>
@@ -212,8 +218,8 @@ export default function Dashboard() {
           )}
           <Card title="Items to follow up">
             <ul className="space-y-3 text-base">
-              {overLimit.slice(0, 2).map((c) => (
-                <li key={c.code} className="flex gap-2"><Badge tone="amber">Credit</Badge><span><b>{c.name}</b> over limit by {rm(c.outstanding - c.creditLimit)}.</span></li>
+              {late90.slice(0, 2).map((c) => (
+                <li key={c.code} className="flex gap-2"><Badge tone="amber">Collect</Badge><span><b>{c.name}</b> has {rm(c.aging[4])} more than 90 days late.</span></li>
               ))}
               {pendingClaims.slice(0, 2).map((c) => (
                 <li key={c.id} className="flex gap-2"><Badge tone="blue">Claim</Badge><span>{c.id} ({rm(c.amount)}) waiting supervisor since {c.submitted}.</span></li>

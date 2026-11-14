@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList } from "lucide-react";
+import { LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet } from "lucide-react";
 import { RoleProvider, useRole } from "./role";
 import { AuthProvider, useAuth } from "./auth";
 import { DataProvider, useData } from "./data";
@@ -16,6 +16,7 @@ const NAV: Nav[] = [
   { href: "/logistics", label: "Logistics", icon: Truck, perm: "page_logistics" },
   { href: "/claims", label: "Claims (PAF)", icon: FileText, perm: "page_claims" },
   { href: "/upload", label: "Data Upload", icon: Upload, perm: "page_upload" },
+  { href: "/test-run", label: "Real data test run", icon: FileSpreadsheet, perm: "page_upload" },
   { href: "/my-orders", label: "My PO orders", icon: ClipboardList, perm: "page_po_mine" },
   { href: "/distributors", label: "Distributor orders", icon: PackageCheck, perm: "page_portal" },
 ];

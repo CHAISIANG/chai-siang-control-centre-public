@@ -61,6 +61,18 @@ export function parseAging(rows: Row[]): Aging {
   return { invoices, fileGrandTotal: grand, fileSideTotals: side, sum: r2(invoices.reduce((s, i) => s + i.outstanding, 0)) };
 }
 
+/** The date the aging report is for: due date plus how many days late each invoice is, taking the most common answer. */
+export function agingAsAt(aging: Aging): string {
+  const votes = new Map<string, number>();
+  for (const i of aging.invoices) {
+    if (!i.due) continue;
+    const t = new Date(i.due + "T00:00:00Z").getTime() + i.age * 86400000;
+    const iso = new Date(t).toISOString().slice(0, 10);
+    votes.set(iso, (votes.get(iso) ?? 0) + 1);
+  }
+  return [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+}
+
 export const AGE_BUCKETS = [
   { key: "current", label: "Not due", test: (a: number) => a <= 0 },
   { key: "d1", label: "1 to 30 days", test: (a: number) => a >= 1 && a <= 30 },
@@ -80,7 +92,7 @@ export const custCodeOf = (code: string) => (/^\d+$/.test(code) ? `MY01C${code.p
 // ---------- coverage and net sales ----------
 export type CovMonthly = { rl: number[]; active: number[]; erc: number[]; calls: number[]; invoices: number[]; productivity: number[]; target: (number | null)[]; sales: number[]; ytd: Record<string, number> };
 export type CovRep = { code: string; name: string } & CovMonthly;
-export type Coverage = { reps: CovRep[]; total: CovMonthly | null };
+export type Coverage = { reps: CovRep[]; total: CovMonthly | null; skipped: string[] };
 
 const METRICS: Record<string, keyof CovMonthly> = { "rl acct": "rl", "active acct": "active", "erc (%)": "erc", "target calls": "calls", "no. of invoices": "invoices", "productivity (%)": "productivity", "sales target": "target", "net sales": "sales" };
 const blank = (): CovMonthly => ({ rl: [], active: [], erc: [], calls: [], invoices: [], productivity: [], target: [], sales: [], ytd: {} });
@@ -115,25 +127,25 @@ export function parseCoverage(rows: Row[]): Coverage {
     t.productivity = t.calls.map((c, i) => (c ? r2((t.invoices[i] / c) * 100) : 0));
     for (const k of ["rl", "active", "calls", "invoices", "sales", "target"] as const) t.ytd[k] = r2((t.ytd[k] ?? 0) - left.reduce((s2, r) => s2 + (r.ytd[k] ?? 0), 0));
   }
-  return { reps: keep, total };
+  return { reps: keep, total, skipped: left.map((r) => r.code) };
 }
 
 // ---------- sales by product and rep ----------
 export type SaleLine = { product: string; desc: string; date: string; invoice: string; rep: string; repName: string; custCode: string; customer: string; qtyCS: number; qtyEA: number; gross: number; promoDisc: number; qtyDisc: number; invDisc: number; net: number };
-export type ProductSales = { lines: SaleLine[]; fileNet?: number; fileGross?: number; net: number; gross: number };
+export type ProductSales = { lines: SaleLine[]; fileNet?: number; fileGross?: number; net: number; gross: number; skippedLines: number };
 
 export function parseProducts(rows: Row[]): ProductSales {
   const lines: SaleLine[] = [];
   let fileNet: number | undefined, fileGross: number | undefined;
-  let skippedNet = 0, skippedGross = 0;
+  let skippedNet = 0, skippedGross = 0, skippedLines = 0;
   for (const r of rows.slice(1)) {
-    if (txt(r[3]) && isExcluded(txt(r[4]))) { skippedNet += num(r[21]); skippedGross += num(r[17]); continue; }
+    if (txt(r[3]) && isExcluded(txt(r[4]))) { skippedNet += num(r[21]); skippedGross += num(r[17]); skippedLines++; continue; }
     if (txt(r[3])) {
       lines.push({ product: txt(r[0]), desc: txt(r[1]), date: isoDate(r[2]), invoice: txt(r[3]), rep: txt(r[4]), repName: txt(r[5]), custCode: txt(r[6]), customer: txt(r[7]),
         qtyCS: num(r[8]), qtyEA: num(r[10]), gross: num(r[17]), promoDisc: num(r[18]), qtyDisc: num(r[19]), invDisc: num(r[20]), net: num(r[21]) });
     } else if (!txt(r[0]) && has(r[21])) { fileNet = num(r[21]); fileGross = num(r[17]); } // the unlabelled last row is the grand total
   }
-  return { lines, fileNet: fileNet === undefined ? undefined : r2(fileNet - skippedNet), fileGross: fileGross === undefined ? undefined : r2(fileGross - skippedGross), net: r2(lines.reduce((s, l) => s + l.net, 0)), gross: r2(lines.reduce((s, l) => s + l.gross, 0)) };
+  return { lines, fileNet: fileNet === undefined ? undefined : r2(fileNet - skippedNet), fileGross: fileGross === undefined ? undefined : r2(fileGross - skippedGross), net: r2(lines.reduce((s, l) => s + l.net, 0)), gross: r2(lines.reduce((s, l) => s + l.gross, 0)), skippedLines };
 }
 
 // ---------- net sales by customer ----------

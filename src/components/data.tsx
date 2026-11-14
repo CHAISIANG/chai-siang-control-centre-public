@@ -21,6 +21,8 @@ type Ctx = {
   /** Days of November in the sales figures (the day of the latest invoice). */
   mtdDay: number;
   uploads: UploadRow[];
+  /** Fetch everything again, for example after reports were uploaded. */
+  reload: () => void;
   reloadClaims: () => Promise<void>;
   reloadLorries: () => Promise<void>;
 };
@@ -39,6 +41,7 @@ const fmtDay = (d: string | null) => (d ? new Date(d + "T00:00:00").toLocaleDate
 export function DataProvider({ children }: { children: ReactNode }) {
   const { profile } = useAuth();
   const approved = !!profile && profile.active && profile.role !== "pending";
+  const [version, setVersion] = useState(0);
   const [state, setState] = useState<{ loading: boolean; error: string | null; salesmenRows: SalesmanRow[]; monthly: MonthlyRow[]; customerRows: CustomerRow[]; claimRows: ClaimRow[]; lorries: Lorry[]; ar: ArRow[]; custSales: CustSalesRow[]; asAt: string; mtdDay: number; uploads: UploadRow[] }>({
     loading: true, error: null, salesmenRows: [], monthly: [], customerRows: [], claimRows: [], lorries: [], ar: [], custSales: [], asAt: "", mtdDay: DAYS_ELAPSED, uploads: [],
   });
@@ -83,7 +86,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       });
     })();
     return () => { active = false; };
-  }, [approved, fetchClaims, fetchLorries]);
+  }, [approved, fetchClaims, fetchLorries, version]);
 
   const value = useMemo<Ctx>(() => {
     const salesmen = buildSalesmen(state.salesmenRows, state.monthly, state.mtdDay);
@@ -97,7 +100,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }));
     const claimFiles: ClaimFile[] = state.claimRows.flatMap((c) => c.claim_files.map((f) => ({ id: f.id, claimId: c.id, kind: f.kind, name: f.file_name, path: f.storage_path })));
     return {
-      loading: state.loading && approved, error: state.error, salesmen, customers, claims, claimFiles, lorries: state.lorries, asAt: state.asAt, mtdDay: state.mtdDay, uploads: state.uploads,
+      loading: state.loading && approved, error: state.error, salesmen, customers, claims, claimFiles, lorries: state.lorries, asAt: state.asAt, mtdDay: state.mtdDay, uploads: state.uploads, reload: () => setVersion((v) => v + 1),
       reloadClaims: async () => { const r = await fetchClaims(); setState((p) => ({ ...p, claimRows: r.rows })); },
       reloadLorries: async () => { const r = await fetchLorries(); setState((p) => ({ ...p, lorries: r.lorries })); },
     };

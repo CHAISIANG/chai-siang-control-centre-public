@@ -136,12 +136,18 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
   const [editing, setEditing] = useState(false);
   const [drag, setDrag] = useState(false);
   const canApprove = can("claims_approve") && claim?.status === "Pending supervisor";
+  // The Customer representative name on the form always follows the customer chosen above.
+  const custNameCell = signatureCells(def.layout).name[0];
+  const shownValues = useMemo(() => (customer ? { ...values, [custNameCell]: customer } : values), [values, customer, custNameCell]);
   const total = lastNum(values.H37);
+  // A claim can only be for a customer appointed to the salesman. The list is theirs alone, and typing a name that is not on it is not accepted.
+  const myCustomers = useMemo(() => customers.filter((c) => !!salesmanCode && c.salesman === salesmanCode), [customers, salesmanCode]);
+  const customerOk = (!!customerCode && myCustomers.some((c) => c.code === customerCode)) || (!isNew && !!claim && customer === claim.customer && !!customer);
   const ticked = useMemo(() => checkboxCells(def.layout).some((b) => values[b.box] === "X"), [def, values]);
   const lineRows = Array.from({ length: def.lines.rows[1] - def.lines.rows[0] + 1 }, (_, i) => def.lines.rows[0] + i);
   const hasLine = lineRows.some((r) => lastNum(values[`${def.lines.cols.cost ?? def.lines.cols.sell ?? "I"}${r}`]) > 0 || (def.lines.cols.desc && (values[`${def.lines.cols.desc}${r}`] ?? "").trim() !== ""));
   const checklist: { ok: boolean; text: string }[] = [
-    { ok: !!customer, text: "Customer chosen" },
+    { ok: customerOk, text: "Customer chosen from your own customers" },
     { ok: !!values.I7 && !!values.O7, text: "Start and end dates filled in" },
     { ok: ticked, text: "At least one box ticked (RE type, category or promotion type)" },
     { ok: hasLine, text: "At least one line with a description or an amount" },
@@ -183,6 +189,8 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
 
   function changeSalesman(code: string) {
     setSalesmanCode(code);
+    const cur = customers.find((c) => c.code === customerCode);
+    if (cur && cur.salesman !== code) { setCustomer(""); setCustomerCode(null); setValue("G9", ""); }
     const sm = salesmen.find((s) => s.code === code);
     setValue(signatureCells(def.layout).name[1], (sm?.name ?? "").toUpperCase());
   }
@@ -210,7 +218,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
     setBusy(true); setError(null);
     try {
       const amount = lastNum(values.H37) || lastNum(values[def.totalCell ?? "H37"]);
-      const row = { form_key: formKey, customer_code: customerCode, customer_name: customer, salesman_code: salesmanCode, amount, status: "Draft" as ClaimStatus, remark, form_values: values, updated_at: new Date().toISOString() };
+      const row = { form_key: formKey, customer_code: customerCode, customer_name: customer, salesman_code: salesmanCode, amount, status: "Draft" as ClaimStatus, remark, form_values: shownValues, updated_at: new Date().toISOString() };
       let id = claim?.id ?? "";
       if (isNew) {
         const { data, error: e } = await supabase.from("claims").insert(row).select("id").single();
@@ -270,8 +278,8 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
             <button onClick={() => window.print()} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"><Printer size={14} /> Print / PDF</button>
             {editable && (
               <>
-                <button disabled={busy || !customer} onClick={() => void save("Draft")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">Save draft</button>
-                <button disabled={busy || !customer} onClick={() => void save("Pending supervisor")} className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40">{busy ? "Saving…" : "Submit for approval"}</button>
+                <button disabled={busy || !customerOk} onClick={() => void save("Draft")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">Save draft</button>
+                <button disabled={busy || !customerOk} onClick={() => void save("Pending supervisor")} className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40">{busy ? "Saving…" : "Submit for approval"}</button>
               </>
             )}
             {canApprove && (
@@ -294,8 +302,9 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
               </select>
             </label>
             <label className="text-xs font-medium text-slate-600 sm:col-span-2">Customer (outlet)
-              <input list="paf-customers" value={custInput} onChange={(e) => pickCustomer(e.target.value)} placeholder="Start typing a customer name…" className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm" />
-              <datalist id="paf-customers">{customers.map((x) => <option key={x.code} value={custLabel(x)} />)}</datalist>
+              <input list="paf-customers" value={custInput} onChange={(e) => pickCustomer(e.target.value)} placeholder={myCustomers.length ? `Choose from ${myCustomers.length} customers` : "No customers are appointed to this salesman"} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm" />
+              {customer && !customerOk && <span role="alert" className="mt-1 block text-xs font-normal text-rose-700">Choose a customer from the list. Only customers appointed to this salesman can be used.</span>}
+              <datalist id="paf-customers">{myCustomers.map((x) => <option key={x.code} value={custLabel(x)} />)}</datalist>
             </label>
             {seesAll && (
               <label className="text-xs font-medium text-slate-600">Salesman
@@ -317,7 +326,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
                 </ul>
               </div>
             )}
-            {editable && <PafFill key={def.key} def={def} values={values} onChange={setValue} />}
+            {editable && <PafFill key={def.key} def={def} values={shownValues} onChange={setValue} followCustomer />}
 
             <div className="rounded-lg border border-slate-200 bg-white p-3">
               <div className="mb-2 text-sm font-semibold text-slate-700">Remark / description</div>
@@ -374,7 +383,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
             </div>
             {editing && <p className="no-print mb-2 rounded bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800">Type directly into the highlighted cells and click the boxes to tick them. The panel on the left updates too.</p>}
             <div id="paf-print">
-              <PafSheet def={def} values={values} editing={editing && editable} onChange={setValue} photos={photos.map((p) => p.url).filter((u): u is string => !!u)} />
+              <PafSheet def={def} values={shownValues} followCustomer editing={editing && editable} onChange={setValue} photos={photos.map((p) => p.url).filter((u): u is string => !!u)} />
               <section className="paf-extra mt-6">
                 <h3 className="text-sm font-semibold text-slate-800">{claim?.id ?? "New claim"} · {customer}</h3>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{remark ? `Remark: ${remark}` : "Remark: –"}</p>

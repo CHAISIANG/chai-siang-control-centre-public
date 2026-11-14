@@ -15,9 +15,11 @@ type Props = {
   editing?: boolean;
   onChange?: (a: string, v: string) => void;
   photos?: string[];
+  /** the Customer representative name follows the customer, so it is not an input */
+  followCustomer?: boolean;
 };
 
-export default function PafSheet({ def, values, editing = false, onChange, photos = [] }: Props) {
+export default function PafSheet({ def, values, editing = false, onChange, photos = [], followCustomer = false }: Props) {
   const { layout } = def;
   const wrap = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
@@ -83,8 +85,9 @@ export default function PafSheet({ def, values, editing = false, onChange, photo
     m[sig.name[2]] = "N"; m[sig.name[3]] = "S";
     m[sig.date[2]] = "O"; m[sig.date[3]] = "S";
     if (getDistributorRep()) delete m[sig.name[2]]; // fixed name, not typed
+    if (followCustomer) delete m[sig.name[0]]; // follows the customer chosen above
     return m;
-  }, [def, sig]);
+  }, [def, sig, followCustomer]);
 
   const photoRect = useMemo(() => {
     if (!def.photoBox) return null;

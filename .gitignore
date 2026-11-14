@@ -44,3 +44,10 @@ next-env.d.ts
 # Real business data used to load the database. Never publish.
 /supabase/seed/
 /supabase/.temp/
+
+# real business reports: never commit spreadsheets or exports (the blank templates in public/templates are the only exception)
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+!public/templates/*.xlsx

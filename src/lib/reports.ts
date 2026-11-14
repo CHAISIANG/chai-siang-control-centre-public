@@ -2,6 +2,10 @@
 // Pure code: it takes the rows of a sheet and returns tidy data plus checks that the reports agree with each other.
 export type Row = unknown[];
 
+/** Salesmen who are never loaded: not in the database, not in the screens, not in the test run. Their open invoices (if any) are kept as debts of the customer. */
+export const EXCLUDED_SALESMEN: readonly string[] = ["MY01S00006", "MY01S00013", "MY01S00015", "MY01S00018"];
+export const isExcluded = (code: string) => EXCLUDED_SALESMEN.includes(code);
+
 const r2 = (n: number) => Math.round(n * 100) / 100;
 /** Numbers arrive as numbers or as text like "1059125.00" or "90.70-" (a trailing minus means negative). */
 export function num(v: unknown): number {
@@ -100,7 +104,18 @@ export function parseCoverage(rows: Row[]): Coverage {
     cur.m.ytd[key] = num(r[13]);
   }
   flush();
-  return { reps, total };
+  const keep = reps.filter((r) => !isExcluded(r.code));
+  const left = reps.filter((r) => isExcluded(r.code));
+  if (total && left.length) {
+    const t = total as CovMonthly;
+    const sub = (a: number[], f: (r: CovRep) => number[]) => a.map((v, i) => r2(v - left.reduce((s2, r) => s2 + (f(r)[i] ?? 0), 0)));
+    t.rl = sub(t.rl, (r) => r.rl); t.active = sub(t.active, (r) => r.active); t.calls = sub(t.calls, (r) => r.calls); t.invoices = sub(t.invoices, (r) => r.invoices); t.sales = sub(t.sales, (r) => r.sales);
+    t.target = t.target.map((v, i) => (v === null ? null : r2(v - left.reduce((s2, r) => s2 + (r.target[i] ?? 0), 0))));
+    t.erc = t.rl.map((rl, i) => (rl ? r2((t.active[i] / rl) * 100) : 0));
+    t.productivity = t.calls.map((c, i) => (c ? r2((t.invoices[i] / c) * 100) : 0));
+    for (const k of ["rl", "active", "calls", "invoices", "sales", "target"] as const) t.ytd[k] = r2((t.ytd[k] ?? 0) - left.reduce((s2, r) => s2 + (r.ytd[k] ?? 0), 0));
+  }
+  return { reps: keep, total };
 }
 
 // ---------- sales by product and rep ----------
@@ -110,13 +125,15 @@ export type ProductSales = { lines: SaleLine[]; fileNet?: number; fileGross?: nu
 export function parseProducts(rows: Row[]): ProductSales {
   const lines: SaleLine[] = [];
   let fileNet: number | undefined, fileGross: number | undefined;
+  let skippedNet = 0, skippedGross = 0;
   for (const r of rows.slice(1)) {
+    if (txt(r[3]) && isExcluded(txt(r[4]))) { skippedNet += num(r[21]); skippedGross += num(r[17]); continue; }
     if (txt(r[3])) {
       lines.push({ product: txt(r[0]), desc: txt(r[1]), date: isoDate(r[2]), invoice: txt(r[3]), rep: txt(r[4]), repName: txt(r[5]), custCode: txt(r[6]), customer: txt(r[7]),
         qtyCS: num(r[8]), qtyEA: num(r[10]), gross: num(r[17]), promoDisc: num(r[18]), qtyDisc: num(r[19]), invDisc: num(r[20]), net: num(r[21]) });
     } else if (!txt(r[0]) && has(r[21])) { fileNet = num(r[21]); fileGross = num(r[17]); } // the unlabelled last row is the grand total
   }
-  return { lines, fileNet, fileGross, net: r2(lines.reduce((s, l) => s + l.net, 0)), gross: r2(lines.reduce((s, l) => s + l.gross, 0)) };
+  return { lines, fileNet: fileNet === undefined ? undefined : r2(fileNet - skippedNet), fileGross: fileGross === undefined ? undefined : r2(fileGross - skippedGross), net: r2(lines.reduce((s, l) => s + l.net, 0)), gross: r2(lines.reduce((s, l) => s + l.gross, 0)) };
 }
 
 // ---------- net sales by customer ----------
@@ -167,8 +184,8 @@ export function crossChecks(d: { aging?: Aging; coverage?: Coverage; products?: 
   }
   if (aging && coverage) {
     const reps = new Set(coverage.reps.map((r) => r.code));
-    const unknown = [...new Set(aging.invoices.map((i) => i.agent))].filter((a) => !reps.has(agentToSalesman(a)));
-    out.push({ ok: unknown.length === 0, title: "Every agent in the aging is a salesman in the coverage report", detail: unknown.length === 0 ? "All agents match a salesman." : `Agent(s) ${unknown.join(", ")} in the aging are not salesmen in the coverage report.` });
+    const unknown = [...new Set(aging.invoices.map((i) => i.agent))].filter((a) => !reps.has(agentToSalesman(a)) && !isExcluded(agentToSalesman(a)));
+    out.push({ ok: unknown.length === 0, title: "Every agent in the aging is a salesman in the coverage report", detail: unknown.length === 0 ? "All agents match a salesman (salesmen on the never-load list are left out on purpose)." : `Agent(s) ${unknown.join(", ")} in the aging are not salesmen in the coverage report.` });
   }
   return out;
 }

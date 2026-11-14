@@ -11,8 +11,8 @@ import { openIssues, stageOf, summary } from "@/lib/po";
 
 const pctTxt = (n: number) => `${n.toFixed(0)}%`;
 const tone = (n: number): "good" | "warn" | "bad" => (n >= 95 ? "good" : n >= 85 ? "warn" : "bad");
-const issueTone = { late: "red", overdue: "red", short: "amber", dropped: "red", substituted: "amber", price: "amber", qty: "amber", proof: "blue", credit: "amber", copy: "red" } as const;
-const issueLabel = { late: "Late", overdue: "Not delivered", short: "Short", dropped: "Dropped", substituted: "Substituted", price: "Price differs", qty: "Qty differs", proof: "No proof", credit: "Credit note due", copy: "No PO copy" } as const;
+const issueTone = { late: "red", overdue: "red", short: "amber", dropped: "red", substituted: "amber", price: "amber", qty: "amber", proof: "blue", credit: "amber", copy: "red", early: "amber" } as const;
+const issueLabel = { late: "Late", overdue: "Not delivered", short: "Short", dropped: "Dropped", substituted: "Substituted", price: "Price differs", qty: "Qty differs", proof: "No proof", credit: "Credit note due", copy: "No PO copy", early: "Early" } as const;
 
 export default function PoTracking() {
   const [tab, setTab] = useState<"all" | "attention">("attention");
@@ -26,7 +26,7 @@ export default function PoTracking() {
 
   return (
     <>
-      <PageHeader title="PO & delivery tracking" sub="Follow each customer PO from order to invoice to signed delivery, and see how well we met it." right={<div className="flex items-center gap-2">{canManage && <button onClick={() => setAdding(true)} className={`${btnPrimary} inline-flex items-center gap-1`}><Plus size={18} /> Key in PO</button>}</div>} />
+      <PageHeader title="PO & delivery tracking" sub="Follow each customer PO from order to invoice to signed delivery, and see how well we met it." right={<div className="flex items-center gap-2"><Link href="/finance/po/codes" className="rounded-md border border-slate-300 bg-white px-3 py-2 text-base font-medium text-slate-700 hover:bg-slate-100">Item codes</Link>{canManage && <button onClick={() => setAdding(true)} className={`${btnPrimary} inline-flex items-center gap-1`}><Plus size={18} /> Key in PO</button>}</div>} />
       <KpiStrip>
         <Kpi label="On time" value={pctTxt(s.onTime)} tone={tone(s.onTime)} pct={s.onTime} sub="Delivered by the requested date" />
         <Kpi label="In full" value={pctTxt(s.inFull)} tone={tone(s.inFull)} pct={s.inFull} sub="All cartons delivered" />

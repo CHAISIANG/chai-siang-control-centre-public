@@ -10,11 +10,11 @@ export const OUTCOMES: { key: Outcome; label: string; counts: string }[] = [
   { key: "substituted", label: "Substituted with another item", counts: "Counts against us unless agreed" },
 ];
 
-export type PoLine = { sku: string; desc: string; poQty: number; poPrice: number; invQty?: number; invPrice?: number; delQty?: number; outcome: Outcome; reason?: string };
+export type PoLine = { sku: string; custCode?: string; desc: string; poQty: number; poPrice: number; invQty?: number; invPrice?: number; delQty?: number; outcome: Outcome; reason?: string };
 export type Po = {
-  id: string; poNo: string; clientId: string; customer: string; poDate: string; reqDate: string;
+  id: string; poNo: string; clientId: string; customer: string; poDate: string; winFrom: string; reqDate: string;
   soNo?: string; salesman: string; salesCode?: string; checkedBy?: string;
-  invoiceId?: string; invoiceNo?: string; invoiceDate?: string;
+  invoiceId?: string; invoiceNo?: string; invoiceDate?: string; invoiceScanPath?: string;
   deliveredDate?: string; driver?: string; route?: string; proofPath?: string; copyPath?: string; creditRaisedAt?: string;
   lines: PoLine[]; note?: string; reasons: Record<string, string>;
 };
@@ -40,7 +40,7 @@ export function stageOf(p: Po): Stage {
   return "keyed";
 }
 
-export type Issue = { kind: "late" | "short" | "dropped" | "substituted" | "price" | "qty" | "proof" | "overdue" | "credit" | "copy"; key: string; text: string; reason?: string };
+export type Issue = { kind: "late" | "short" | "dropped" | "substituted" | "price" | "qty" | "proof" | "overdue" | "credit" | "copy" | "early"; key: string; text: string; reason?: string };
 /** Every problem found, each with the reason staff gave (if any). */
 export function issues(p: Po): Issue[] {
   return rawIssues(p).map((i) => ({ ...i, reason: p.reasons[i.key] ?? i.reason }));
@@ -59,6 +59,7 @@ function rawIssues(p: Po): Issue[] {
     if (done && l.outcome === "substituted") out.push({ kind: "substituted", key: `substituted:${l.sku}`, text: `${l.sku}: substituted with another item`, reason: l.reason });
     if (done && hasInv && creditFor(l) > 0) out.push({ kind: "credit", key: `credit:${l.sku}`, text: `${l.sku}: still invoiced, credit note needed (RM ${creditFor(l).toFixed(2)})` });
   }
+  if (done && p.deliveredDate! < p.winFrom) out.push({ kind: "early", key: "early", text: `Delivered ${daysBetween(p.deliveredDate!, p.winFrom)} day(s) before the window opened` });
   if (done && p.deliveredDate! > p.reqDate) out.push({ kind: "late", key: "late", text: `Delivered ${daysBetween(p.reqDate, p.deliveredDate!)} day(s) late` });
   if (!done && hasInv && today() > p.reqDate) out.push({ kind: "overdue", key: "overdue", text: `Not delivered, ${daysBetween(p.reqDate, today())} day(s) past the requested date` });
   if (done && !p.proofPath) out.push({ kind: "proof", key: "proof", text: "Signed delivery proof not uploaded" });
@@ -70,7 +71,7 @@ export function scoreOf(p: Po) {
   if (!p.deliveredDate) return null;
   const counted = p.lines.filter((l) => l.outcome !== "cancelled");
   const ordered = counted.reduce((s, l) => s + l.poQty, 0), got = counted.reduce((s, l) => s + (l.delQty ?? 0), 0);
-  const onTime = p.deliveredDate <= p.reqDate;
+  const onTime = p.deliveredDate >= p.winFrom && p.deliveredDate <= p.reqDate;
   const inFull = counted.every((l) => l.outcome === "delivered" && (l.delQty ?? 0) >= l.poQty);
   const accurate = counted.every((l) => l.invPrice === l.poPrice && (l.invQty === l.poQty || l.invQty === l.delQty));
   return { onTime, inFull, accurate, fillPct: ordered ? (got / ordered) * 100 : 100, perfect: onTime && inFull && accurate };
@@ -112,14 +113,6 @@ export function lineMatch(p: Po, l: PoLine): Match[] {
 export const hasProblem = (p: Po) => !p.copyPath || p.lines.some((l) => lineMatch(p, l).some((m) => m.icon === "bad"));
 export const orderState = (p: Po): "wait" | "ok" | "check" => (!p.deliveredDate ? "wait" : hasProblem(p) ? "check" : "ok");
 
-export function checkNewPo(v: { poNo: string; clientId: string; poDate: string; reqDate: string; lines: { sku: string; qty: number; price: number }[] }): string | null {
-  if (!v.poNo.trim()) return "Enter the customer's PO number.";
-  if (!v.clientId) return "Choose the customer.";
-  if (!v.reqDate) return "Enter the requested delivery date.";
-  if (v.reqDate < v.poDate) return "The requested delivery date cannot be before the PO date.";
-  if (!v.lines.length || v.lines.some((l) => !l.sku.trim() || !(l.qty > 0) || !(l.price >= 0))) return "Every line needs an item code, a quantity above 0 and a price.";
-  return null;
-}
 export function checkDeliveryLines(lines: { sku: string; poQty: number; outcome: Outcome; qty: number; reason: string }[]): string | null {
   for (const l of lines) {
     if (l.outcome !== "delivered" && l.reason.trim().length < 3) return `${l.sku}: write a reason for "${OUTCOMES.find((x) => x.key === l.outcome)!.label}".`;

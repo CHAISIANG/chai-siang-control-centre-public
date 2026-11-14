@@ -4,7 +4,8 @@ import { Plus, Trash2 } from "lucide-react";
 import { btnGhost, btnPrimary, Field, inputCls, Modal } from "./finui";
 import { usePo } from "./po";
 import { useFinance } from "./finance";
-import { checkDeliveryLines, checkNewPo, OUTCOMES, today, type Outcome, type Po, type PoLine } from "@/lib/po";
+import { checkDeliveryLines, OUTCOMES, rmFmt, today, type Outcome, type Po } from "@/lib/po";
+import { checkInvoiceLink, checkNewPo, compareLines, resolveLine, type DraftLine } from "@/lib/pounits";
 
 function Form({ title, onClose, wide, submit, label, children }: { title: string; onClose: () => void; wide?: boolean; submit: () => string | null | Promise<string | null>; label: string; children: ReactNode }) {
   const [err, setErr] = useState<string | null>(null);
@@ -21,26 +22,29 @@ function Form({ title, onClose, wide, submit, label, children }: { title: string
   );
 }
 
-const blank: PoLine = { sku: "", desc: "", poQty: 1, poPrice: 0, outcome: "delivered" };
 
 export function NewPoModal({ onClose }: { onClose: () => void }) {
-  const { addPo, clients, canManage, salesmanName } = usePo();
-  const [poNo, setPoNo] = useState(""), [clientId, setClientId] = useState(""), [soNo, setSoNo] = useState(""), [poDate, setPoDate] = useState(today()), [reqDate, setReqDate] = useState(today());
+  const { addPo, clients, itemCodes, canManage, salesmanName } = usePo();
+  const [poNo, setPoNo] = useState(""), [clientId, setClientId] = useState(""), [soNo, setSoNo] = useState(""), [poDate, setPoDate] = useState(today()), [winFrom, setWinFrom] = useState(today()), [winTo, setWinTo] = useState(today());
   const [keyedBy, setKeyedBy] = useState(canManage ? "" : salesmanName), [salesCode, setSalesCode] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [lines, setLines] = useState<PoLine[]>([{ ...blank }]);
-  const set = (i: number, p: Partial<PoLine>) => setLines((ls) => ls.map((l, k) => (k === i ? { ...l, ...p } : l)));
+  const [rows, setRows] = useState<DraftLine[]>([{ code: "", qty: 1, unit: "cartons", unitPrice: 0 }]);
+  const map = itemCodes.filter((m) => m.clientId === clientId);
+  const set = (i: number, p: Partial<DraftLine>) => setRows((a) => a.map((r, k) => (k === i ? { ...r, ...p } : r)));
+  const calc = rows.map((r) => ({ r, ...resolveLine(map, r) }));
+  const total = calc.reduce((s, c) => s + c.amount, 0);
   return (
     <Form title="Key in a customer PO" wide onClose={onClose} label="Save order" submit={() => {
-      const e = checkNewPo({ poNo, clientId, poDate, reqDate, lines: lines.map((l) => ({ sku: l.sku, qty: l.poQty, price: l.poPrice })) });
-      return e ?? addPo({ poNo, clientId, poDate, reqDate, soNo, keyedBy, salesCode, lines, file });
+      const e = checkNewPo({ poNo, clientId, poDate, winFrom, winTo, draft: rows }, map);
+      return e ?? addPo({ poNo, clientId, poDate, winFrom, winTo, soNo, keyedBy, salesCode, draft: rows, file });
     }}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Customer PO number"><input className={inputCls} value={poNo} onChange={(e) => setPoNo(e.target.value)} /></Field>
         <Field label="Customer"><select className={inputCls} value={clientId} onChange={(e) => setClientId(e.target.value)}><option value="">Choose customer</option>{clients.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}</select></Field>
         <Field label="PO date"><input type="date" className={inputCls} value={poDate} onChange={(e) => setPoDate(e.target.value)} /></Field>
-        <Field label="Requested delivery date"><input type="date" className={inputCls} value={reqDate} onChange={(e) => setReqDate(e.target.value)} /></Field>
         <Field label="Sales order number (optional)"><input className={inputCls} value={soNo} onChange={(e) => setSoNo(e.target.value)} /></Field>
+        <Field label="Delivery window from"><input type="date" className={inputCls} value={winFrom} onChange={(e) => setWinFrom(e.target.value)} /></Field>
+        <Field label="Delivery window to"><input type="date" className={inputCls} value={winTo} onChange={(e) => setWinTo(e.target.value)} /></Field>
         {canManage ? (
           <>
             <Field label="Keyed by"><input className={inputCls} value={keyedBy} onChange={(e) => setKeyedBy(e.target.value)} /></Field>
@@ -48,17 +52,25 @@ export function NewPoModal({ onClose }: { onClose: () => void }) {
           </>
         ) : <Field label="Keyed by"><input className={`${inputCls} bg-slate-50`} value={salesmanName || "From your login"} readOnly /></Field>}
       </div>
-      <div className="text-sm font-medium text-slate-600">PO lines, as printed on the customer&apos;s PO</div>
-      {lines.map((l, i) => (
-        <div key={i} className="grid grid-cols-12 items-end gap-2">
-          <input aria-label="Item code" placeholder="Item code" className={`${inputCls} col-span-4 sm:col-span-3`} value={l.sku} onChange={(e) => set(i, { sku: e.target.value })} />
-          <input aria-label="Description" placeholder="Description" className={`${inputCls} col-span-8 sm:col-span-4`} value={l.desc} onChange={(e) => set(i, { desc: e.target.value })} />
-          <input aria-label="Quantity" type="number" min={1} className={`${inputCls} col-span-4 sm:col-span-2`} value={l.poQty} onChange={(e) => set(i, { poQty: Number(e.target.value) })} />
-          <input aria-label="Price" type="number" step="0.01" min={0} className={`${inputCls} col-span-6 sm:col-span-2`} value={l.poPrice} onChange={(e) => set(i, { poPrice: Number(e.target.value) })} />
-          <button type="button" aria-label="Remove line" disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, k) => k !== i))} className="col-span-2 mb-1 rounded p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-30 sm:col-span-1"><Trash2 size={18} /></button>
+      <div className="text-sm font-medium text-slate-600">PO lines: type the customer&apos;s own item code, as printed on their PO</div>
+      {clientId && map.length === 0 && <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">This customer has no item codes yet. Ask Finance to add them under PO &amp; delivery → Item codes.</p>}
+      {calc.map((c, i) => (
+        <div key={i} className="rounded-lg border border-slate-200 p-2">
+          <div className="grid grid-cols-12 items-center gap-2">
+            <input aria-label="Customer item code" placeholder="Their code" className={`${inputCls} col-span-5 !mt-0 sm:col-span-2`} value={c.r.code} onChange={(e) => set(i, { code: e.target.value })} />
+            <input aria-label="Quantity" type="number" min={1} className={`${inputCls} col-span-3 !mt-0 sm:col-span-2`} value={c.r.qty} onChange={(e) => set(i, { qty: Number(e.target.value) })} />
+            <select aria-label="Unit" className={`${inputCls} col-span-4 !mt-0 sm:col-span-2`} value={c.r.unit} onChange={(e) => set(i, { unit: e.target.value as DraftLine["unit"] })}><option value="units">Units</option><option value="cartons">Cartons</option></select>
+            <input aria-label="Price as on the PO" type="number" step="0.01" min={0} className={`${inputCls} col-span-6 !mt-0 sm:col-span-2`} value={c.r.unitPrice} onChange={(e) => set(i, { unitPrice: Number(e.target.value) })} />
+            <div className="col-span-5 text-[15px] sm:col-span-3">{c.map ? <><b>{Number.isInteger(c.cartons) ? c.cartons : c.cartons.toFixed(2)} cartons</b> of {c.map.ourCode}</> : c.r.code ? <span className="text-rose-700">Not in the list</span> : null}</div>
+            <button type="button" aria-label="Remove line" disabled={rows.length === 1} onClick={() => setRows((a) => a.filter((_, k) => k !== i))} className="col-span-1 rounded p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30"><Trash2 size={18} /></button>
+          </div>
+          {c.map && <div className="mt-1 pl-1 text-sm text-slate-500">{c.map.desc} · {c.map.pack} per carton · agreed {rmFmt(c.map.ctnPrice)} per carton</div>}
+          {c.map && !c.wholeCartons && <div className="mt-1 pl-1 text-sm text-amber-700">Not a whole number of cartons. Check the quantity with the customer.</div>}
+          {c.map && !c.priceOk && <div className="mt-1 pl-1 text-sm text-rose-700">Price differs from the agreed price. Confirm it with the customer, or update the item list.</div>}
         </div>
       ))}
-      <button type="button" onClick={() => setLines((ls) => [...ls, { ...blank }])} className="inline-flex items-center gap-1 text-sm font-medium text-indigo-700 hover:underline"><Plus size={16} /> Add line</button>
+      <button type="button" onClick={() => setRows((a) => [...a, { code: "", qty: 1, unit: "cartons", unitPrice: 0 }])} className="inline-flex items-center gap-1 text-sm font-medium text-indigo-700 hover:underline"><Plus size={16} /> Add line</button>
+      <div className="text-slate-600">PO total <b className="text-slate-900">{rmFmt(total)}</b></div>
       <Field label="Customer's PO, hard copy (photo or PDF)"><input type="file" accept="image/*,application/pdf" capture="environment" className={inputCls} onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Field>
       <p className="text-sm text-slate-500">{file ? "PO copy will be attached." : "You can attach the PO copy later, but the second check and invoice stay locked until it is attached."}</p>
     </Form>
@@ -80,26 +92,49 @@ export function InvoiceModal({ po, onClose }: { po: Po; onClose: () => void }) {
   const { addInvoice, pos } = usePo();
   const { invoices } = useFinance();
   const options = invoices.filter((i) => i.client_id === po.clientId && i.status !== "void" && !pos.some((p) => p.invoiceId === i.id));
-  const [invoiceId, setInvoiceId] = useState("");
+  const [mode, setMode] = useState<"printed" | "finance">("printed");
+  const [no, setNo] = useState(""), [date, setDate] = useState(today()), [invoiceId, setInvoiceId] = useState(""), [scan, setScan] = useState<File | null>(null);
   const [ls, setLs] = useState(po.lines.map((l) => ({ invQty: l.poQty, invPrice: l.poPrice })));
   const set = (i: number, p: Partial<{ invQty: number; invPrice: number }>) => setLs((a) => a.map((l, k) => (k === i ? { ...l, ...p } : l)));
+  const cmp = compareLines(po.lines.map((l) => ({ cartons: l.poQty, ctnPrice: l.poPrice })), ls.map((l) => ({ cartons: l.invQty, ctnPrice: l.invPrice })));
   return (
-    <Form title={`Link invoice to ${po.poNo}`} wide onClose={onClose} label="Link invoice" submit={() => addInvoice(po.id, { invoiceId, lines: ls })}>
-      <Field label="Invoice">
-        <select className={inputCls} value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)}>
-          <option value="">{options.length ? "Choose invoice" : "No unlinked invoices for this customer"}</option>
-          {options.map((i) => <option key={i.id} value={i.id}>{i.invoice_no} · {i.issue_date}</option>)}
-        </select>
-      </Field>
-      <div className="text-sm font-medium text-slate-600">Quantity and price as printed on the invoice</div>
-      {po.lines.map((l, i) => (
-        <div key={l.sku + i} className="grid grid-cols-12 items-center gap-2">
-          <div className="col-span-12 text-sm text-slate-700 sm:col-span-5"><b>{l.sku}</b> · PO {l.poQty} @ RM {l.poPrice.toFixed(2)}</div>
-          <input aria-label={`${l.sku} invoiced quantity`} type="number" min={0} className={`${inputCls} col-span-6 sm:col-span-3`} value={ls[i].invQty} onChange={(e) => set(i, { invQty: Number(e.target.value) })} />
-          <input aria-label={`${l.sku} invoiced price`} type="number" step="0.01" min={0} className={`${inputCls} col-span-6 sm:col-span-4`} value={ls[i].invPrice} onChange={(e) => set(i, { invPrice: Number(e.target.value) })} />
+    <Form title={`Link invoice to ${po.poNo}`} wide onClose={onClose} label="Link invoice" submit={() => {
+      if (mode === "printed") {
+        const e = checkInvoiceLink(pos.filter((p) => p.id !== po.id && p.invoiceNo).map((p) => p.invoiceNo!), po.poDate, po.lines.length, { no, date, lines: ls.map((l) => ({ cartons: l.invQty, ctnPrice: l.invPrice })) });
+        if (e) return e;
+      }
+      return addInvoice(po.id, { invoiceId: mode === "finance" ? invoiceId : "", extNo: mode === "printed" ? no : "", extDate: mode === "printed" ? date : "", lines: ls, scan });
+    }}>
+      <div className="inline-flex rounded-md border border-slate-300 p-0.5 text-sm">
+        {([["printed", "Type the printed number"], ["finance", "Choose a Finance invoice"]] as const).map(([k, l]) => <button type="button" key={k} onClick={() => setMode(k)} className={`rounded px-3 py-1 ${mode === k ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{l}</button>)}
+      </div>
+      {mode === "printed" ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Invoice number, as printed"><input className={inputCls} value={no} onChange={(e) => setNo(e.target.value)} /></Field>
+          <Field label="Invoice date"><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         </div>
-      ))}
-      <p className="text-sm text-slate-500">If a number differs from the PO, it is saved and flagged for you to explain.</p>
+      ) : (
+        <Field label="Invoice">
+          <select className={inputCls} value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)}>
+            <option value="">{options.length ? "Choose invoice" : "No unlinked invoices for this customer"}</option>
+            {options.map((i) => <option key={i.id} value={i.id}>{i.invoice_no} · {i.issue_date}</option>)}
+          </select>
+        </Field>
+      )}
+      <Field label="Scan of the invoice (photo or PDF)"><input type="file" accept="image/*,application/pdf" className={inputCls} onChange={(e) => setScan(e.target.files?.[0] ?? null)} /></Field>
+      <div className="text-sm font-medium text-slate-600">Cartons and price per carton as printed on the invoice</div>
+      {po.lines.map((l, i) => {
+        const d = cmp.diffs[i];
+        return (
+          <div key={l.sku + i} className="grid grid-cols-12 items-center gap-2">
+            <div className="col-span-12 text-sm text-slate-700 sm:col-span-5"><b>{l.sku}</b> · PO {l.poQty} cartons @ {rmFmt(l.poPrice)}</div>
+            <input aria-label={`${l.sku} invoiced cartons`} type="number" min={0} className={`${inputCls} col-span-5 !mt-0 sm:col-span-2 ${d.some((x) => x.kind !== "price") ? "border-rose-300 bg-rose-50" : ""}`} value={ls[i].invQty} onChange={(e) => set(i, { invQty: Number(e.target.value) })} />
+            <input aria-label={`${l.sku} invoiced price`} type="number" step="0.01" min={0} className={`${inputCls} col-span-7 !mt-0 sm:col-span-3 ${d.some((x) => x.kind === "price") ? "border-rose-300 bg-rose-50" : ""}`} value={ls[i].invPrice} onChange={(e) => set(i, { invPrice: Number(e.target.value) })} />
+            <div className="col-span-12 text-sm sm:col-span-2">{d.length === 0 ? <span className="text-emerald-700">Matches</span> : <span className="text-rose-700">{d.map((x) => x.text).join("; ")}</span>}</div>
+          </div>
+        );
+      })}
+      <p className="text-sm text-slate-600">PO {rmFmt(cmp.poTotal)} · invoice {rmFmt(cmp.invTotal)}{cmp.invTotal !== cmp.poTotal && <span className="text-rose-700"> · {rmFmt(Math.abs(cmp.poTotal - cmp.invTotal))} {cmp.invTotal < cmp.poTotal ? "less" : "more"} than the PO</span>}. Differences are saved and flagged for you to explain.</p>
     </Form>
   );
 }

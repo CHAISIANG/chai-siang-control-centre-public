@@ -25,7 +25,7 @@ export default function PoTrace() {
     : !po.proofPath ? { label: "Upload signed copy", pick: "proof" as const } : null;
   const sc = scoreOf(po);
   const steps = [
-    { icon: FileText, title: "PO received", date: po.poDate, done: true, lines: [`Customer PO ${po.poNo}`, `Requested delivery ${po.reqDate}`, `Taken by ${po.salesman}`, po.copyPath ? "PO copy attached" : "PO copy not attached"] },
+    { icon: FileText, title: "PO received", date: po.poDate, done: true, lines: [`Customer PO ${po.poNo}`, `Delivery window ${po.winFrom} to ${po.reqDate}`, `Taken by ${po.salesman}`, po.copyPath ? "PO copy attached" : "PO copy not attached"] },
     { icon: FileText, title: "Order keyed", date: po.soNo ? po.poDate : undefined, done: !!po.soNo, lines: po.soNo ? [`Sales order ${po.soNo}`, po.checkedBy ? `Checked against PO by ${po.checkedBy}` : "Waiting for second check"] : ["Not keyed yet"] },
     { icon: Receipt, title: "Invoice issued", date: po.invoiceDate, done: !!po.invoiceNo, lines: po.invoiceNo ? [po.invoiceNo, rmFmt(invTotal(po))] : ["No invoice yet"] },
     { icon: Truck, title: "Delivered", date: po.deliveredDate, done: !!po.deliveredDate, lines: po.deliveredDate ? [`Driver ${po.driver} · ${po.route}`] : po.invoiceNo ? [`Waiting. ${today() > po.reqDate ? daysBetween(po.reqDate, today()) + " day(s) late" : "Due " + po.reqDate}`] : ["After invoicing"] },
@@ -51,7 +51,8 @@ export default function PoTrace() {
               <ul className="mt-2 space-y-0.5 text-sm text-slate-700">{s.lines.map((l) => <li key={l}>{l}</li>)}</ul>
               {i === 0 && po.copyPath && <button onClick={async () => { const u = await fileUrl(po.copyPath!); if (u) window.open(u, "_blank", "noopener"); else setFileErr("The PO copy could not be opened."); }} className="mt-2 inline-block text-sm font-medium text-indigo-700 hover:underline">View PO copy</button>}
               {i === 4 && po.proofPath && <button onClick={async () => { const u = await fileUrl(po.proofPath!); if (u) window.open(u, "_blank", "noopener"); else setFileErr("The signed copy could not be opened."); }} className="mt-2 inline-block text-sm font-medium text-indigo-700 hover:underline">View signed copy</button>}
-              {i === 2 && po.invoiceNo && <Link href={`/finance/invoices/${po.invoiceId}`} className="mt-2 inline-block text-sm font-medium text-indigo-700 hover:underline">Open invoice</Link>}
+              {i === 2 && po.invoiceScanPath && <button onClick={async () => { const u = await fileUrl(po.invoiceScanPath!); if (u) window.open(u, "_blank", "noopener"); else setFileErr("The invoice scan could not be opened."); }} className="mt-2 mr-3 inline-block text-sm font-medium text-indigo-700 hover:underline">View invoice scan</button>}
+              {i === 2 && po.invoiceId && <Link href={`/finance/invoices/${po.invoiceId}`} className="mt-2 inline-block text-sm font-medium text-indigo-700 hover:underline">Open invoice</Link>}
             </li>
           ))}
         </ol>
@@ -60,13 +61,13 @@ export default function PoTrace() {
       <Card className="mt-4" title="PO, invoice and delivery side by side" right={<span className="text-sm text-slate-500">Red cells do not match the PO</span>}>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="border-b border-slate-200"><tr><Th first>Item</Th><Th right>PO qty</Th><Th right>Invoiced qty</Th><Th right>Delivered qty</Th><Th right>PO price</Th><Th right>Invoice price</Th><Th>Result</Th></tr></thead>
+            <thead className="border-b border-slate-200"><tr><Th first>Item</Th><Th right>PO cartons</Th><Th right>Invoiced cartons</Th><Th right>Delivered cartons</Th><Th right>PO price / carton</Th><Th right>Invoice price / carton</Th><Th>Result</Th></tr></thead>
             <tbody>
               {po.lines.map((l) => {
                 const bad = "bg-rose-50 font-medium text-rose-700";
                 return (
                   <tr key={l.sku} className="border-b border-slate-100">
-                    <Td first><div className="font-medium text-slate-900">{l.sku}</div><div className="text-sm text-slate-500">{l.desc}</div></Td>
+                    <Td first><div className="font-medium text-slate-900">{l.sku}</div><div className="text-sm text-slate-500">{l.desc}{l.custCode ? ` · their code ${l.custCode}` : ""}</div></Td>
                     <Td right>{l.poQty}</Td>
                     <Td right className={l.invQty !== undefined && l.invQty !== l.poQty ? bad : ""}>{l.invQty ?? "–"}</Td>
                     <Td right className={l.delQty !== undefined && l.outcome !== "cancelled" && l.delQty < l.poQty ? bad : ""}>{l.delQty ?? "–"}</Td>

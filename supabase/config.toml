@@ -430,3 +430,6 @@ verify_jwt = false
 
 [functions.send-reminders]
 verify_jwt = false
+
+[functions.read-document]
+verify_jwt = false

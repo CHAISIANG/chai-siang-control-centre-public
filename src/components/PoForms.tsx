@@ -6,6 +6,8 @@ import { usePo } from "./po";
 import { useFinance } from "./finance";
 import { checkDeliveryLines, OUTCOMES, rmFmt, today, type Outcome, type Po } from "@/lib/po";
 import { checkInvoiceLink, checkNewPo, compareLines, resolveLine, type DraftLine } from "@/lib/pounits";
+import { buildInvoiceDraft, buildPoDraft, invSum, matchCustomer, poSum, totalCheck, type Cell } from "@/lib/poread";
+import { readDocument } from "@/lib/poreadClient";
 
 function Form({ title, onClose, wide, submit, label, children }: { title: string; onClose: () => void; wide?: boolean; submit: () => string | null | Promise<string | null>; label: string; children: ReactNode }) {
   const [err, setErr] = useState<string | null>(null);
@@ -23,12 +25,56 @@ function Form({ title, onClose, wide, submit, label, children }: { title: string
 }
 
 
+type Note = { level: "check" | "missing" | "ok"; text: string };
+const cellNote = (label: string, c: Cell): Note[] => (c.status === "read" ? [] : [{ level: c.status, text: `${label}: ${c.note ?? (c.status === "missing" ? "not found." : "check it.")}` }]);
+
+function ReadPanel({ busy, error, notes, onRead, label, canRead }: { busy: boolean; error: string | null; notes: Note[] | null; onRead: () => void; label: string; canRead: boolean }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={onRead} disabled={!canRead || busy} className={`${btnGhost} ${!canRead ? "opacity-60" : ""}`}>{busy ? "Reading…" : label}</button>
+        <span className="text-sm text-slate-500">{canRead ? "Fills the form from the file. You check it before saving." : "Choose the file first."}</span>
+      </div>
+      {error && <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
+      {notes && (
+        <div role="status" className="space-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+          <div className="font-medium text-slate-700">Read from the file. Anything marked below needs your check.</div>
+          {notes.map((n, i) => <div key={i} className={n.level === "ok" ? "text-emerald-700" : n.level === "check" ? "text-amber-800" : "text-rose-700"}>{n.level === "ok" ? "✓ " : n.level === "check" ? "! " : "✗ "}{n.text}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function NewPoModal({ onClose }: { onClose: () => void }) {
   const { addPo, clients, itemCodes, canManage, salesmanName } = usePo();
   const [poNo, setPoNo] = useState(""), [clientId, setClientId] = useState(""), [soNo, setSoNo] = useState(""), [poDate, setPoDate] = useState(today()), [winFrom, setWinFrom] = useState(today()), [winTo, setWinTo] = useState(today());
   const [keyedBy, setKeyedBy] = useState(canManage ? "" : salesmanName), [salesCode, setSalesCode] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [rows, setRows] = useState<DraftLine[]>([{ code: "", qty: 1, unit: "cartons", unitPrice: 0 }]);
+  const [reading, setReading] = useState(false), [readErr, setReadErr] = useState<string | null>(null), [notes, setNotes] = useState<Note[] | null>(null);
+  async function readPo() {
+    if (!file) return;
+    setReading(true); setReadErr(null); setNotes(null);
+    const r = await readDocument("po", file);
+    setReading(false);
+    if (!r.ok) { setReadErr(r.error); return; }
+    const customers = clients.map((c) => ({ id: c.id, name: c.company_name }));
+    const cid = matchCustomer(r.data.customerName, customers).id ?? clientId;
+    const d = buildPoDraft(r.data, customers, itemCodes.filter((m) => m.clientId === cid));
+    if (d.poNo.value) setPoNo(d.poNo.value);
+    if (d.customer.id) setClientId(d.customer.id);
+    if (d.poDate.value) setPoDate(d.poDate.value);
+    if (d.winFrom.value) setWinFrom(d.winFrom.value);
+    if (d.winTo.value) setWinTo(d.winTo.value);
+    if (d.lines.length) setRows(d.lines.map((l) => ({ code: l.code, qty: l.qty, unit: l.unit, unitPrice: l.price })));
+    const tc = totalCheck("PO", d.docTotal, poSum(d.lines), d.lines.length);
+    setNotes([
+      ...cellNote("PO number", d.poNo), ...cellNote("Customer", d.customer), ...cellNote("PO date", d.poDate), ...cellNote("Delivery window from", d.winFrom), ...cellNote("Delivery window to", d.winTo),
+      ...d.lines.flatMap((l, i) => (l.status === "read" ? [] : [{ level: l.status, text: `Line ${i + 1}: ${l.note ?? "check it."}` } as Note])),
+      { level: tc.ok ? "ok" : "check", text: tc.text },
+    ]);
+  }
   const map = itemCodes.filter((m) => m.clientId === clientId);
   const set = (i: number, p: Partial<DraftLine>) => setRows((a) => a.map((r, k) => (k === i ? { ...r, ...p } : r)));
   const calc = rows.map((r) => ({ r, ...resolveLine(map, r) }));
@@ -73,6 +119,7 @@ export function NewPoModal({ onClose }: { onClose: () => void }) {
       <div className="text-slate-600">PO total <b className="text-slate-900">{rmFmt(total)}</b></div>
       <Field label="Customer's PO, hard copy (photo or PDF)"><input type="file" accept="image/*,application/pdf" capture="environment" className={inputCls} onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Field>
       <p className="text-sm text-slate-500">{file ? "PO copy will be attached." : "You can attach the PO copy later, but the second check and invoice stay locked until it is attached."}</p>
+      <ReadPanel busy={reading} error={readErr} notes={notes} onRead={readPo} label="Read the PO" canRead={!!file} />
     </Form>
   );
 }
@@ -96,6 +143,28 @@ export function InvoiceModal({ po, onClose }: { po: Po; onClose: () => void }) {
   const [no, setNo] = useState(""), [date, setDate] = useState(today()), [invoiceId, setInvoiceId] = useState(""), [scan, setScan] = useState<File | null>(null);
   const [ls, setLs] = useState(po.lines.map((l) => ({ invQty: l.poQty, invPrice: l.poPrice })));
   const set = (i: number, p: Partial<{ invQty: number; invPrice: number }>) => setLs((a) => a.map((l, k) => (k === i ? { ...l, ...p } : l)));
+  const { itemCodes } = usePo();
+  const [reading, setReading] = useState(false), [readErr, setReadErr] = useState<string | null>(null), [notes, setNotes] = useState<Note[] | null>(null);
+  async function readInvoice() {
+    if (!scan) return;
+    setReading(true); setReadErr(null); setNotes(null);
+    const r = await readDocument("invoice", scan);
+    setReading(false);
+    if (!r.ok) { setReadErr(r.error); return; }
+    const d = buildInvoiceDraft(r.data, { poNo: po.poNo, lines: po.lines.map((l) => ({ sku: l.sku, desc: l.desc, cartons: l.poQty, ctnPrice: l.poPrice })) }, itemCodes.filter((m) => m.clientId === po.clientId));
+    setMode("printed");
+    if (d.invoiceNo.value) setNo(d.invoiceNo.value);
+    if (d.invoiceDate.value) setDate(d.invoiceDate.value);
+    setLs(d.lines.map((l) => ({ invQty: l.cartons, invPrice: l.ctnPrice })));
+    const tc = totalCheck("invoice", d.docTotal, invSum(d.lines), d.lines.length);
+    setNotes([
+      ...cellNote("Invoice number", d.invoiceNo), ...cellNote("Invoice date", d.invoiceDate),
+      d.poRef.matches ? { level: "ok", text: "The invoice names the same PO as the one you are linking." } as Note : { level: d.poRef.status === "missing" ? "missing" : "check", text: `PO number on the invoice: ${d.poRef.note ?? "check it."}` } as Note,
+      ...d.lines.flatMap((l, i) => (l.status === "read" ? [] : [{ level: l.status, text: `Line ${i + 1} (${l.sku}): ${l.note ?? "check it."}` } as Note])),
+      ...(d.extras.length ? [{ level: "check", text: `The invoice has items that are not on the PO: ${d.extras.join(", ")}.` } as Note] : []),
+      { level: tc.ok ? "ok" : "check", text: tc.text },
+    ]);
+  }
   const cmp = compareLines(po.lines.map((l) => ({ cartons: l.poQty, ctnPrice: l.poPrice })), ls.map((l) => ({ cartons: l.invQty, ctnPrice: l.invPrice })));
   return (
     <Form title={`Link invoice to ${po.poNo}`} wide onClose={onClose} label="Link invoice" submit={() => {
@@ -122,6 +191,7 @@ export function InvoiceModal({ po, onClose }: { po: Po; onClose: () => void }) {
         </Field>
       )}
       <Field label="Scan of the invoice (photo or PDF)"><input type="file" accept="image/*,application/pdf" className={inputCls} onChange={(e) => setScan(e.target.files?.[0] ?? null)} /></Field>
+      <ReadPanel busy={reading} error={readErr} notes={notes} onRead={readInvoice} label="Read the invoice" canRead={!!scan} />
       <div className="text-sm font-medium text-slate-600">Cartons and price per carton as printed on the invoice</div>
       {po.lines.map((l, i) => {
         const d = cmp.diffs[i];

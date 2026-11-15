@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, FileText, ImagePlus, Paperclip, Plus, Printer, UploadCloud, X } from "lucide-react";
+import { Check, FileText, ImagePlus, Paperclip, Plus, Printer, Trash2, UploadCloud, X } from "lucide-react";
 import { useRole } from "@/components/role";
 import { useData, type ClaimFile } from "@/components/data";
 import PafFill from "@/components/PafFill";
@@ -11,9 +11,14 @@ import { supabase } from "@/lib/supabase";
 import { blankValues, checkboxCells, FORM_KEYS, FORMS, lastNum, recompute, signatureCells, type FormKey, type Values } from "@/lib/paf";
 
 const tone: Record<ClaimStatus, "grey" | "amber" | "blue" | "green" | "red"> = {
-  Draft: "grey", "Pending supervisor": "amber", Approved: "blue", "Sent to principal": "blue", Paid: "green", Rejected: "red",
+  Draft: "grey", "Pending supervisor": "amber", "Pending Colgate": "blue", "Approved by Colgate": "green", Paid: "green", Returned: "red",
 };
-const flow: ClaimStatus[] = ["Draft", "Pending supervisor", "Approved", "Sent to principal", "Paid"];
+const flow: ClaimStatus[] = ["Draft", "Pending supervisor", "Pending Colgate", "Approved by Colgate", "Paid"];
+// Until the next person has approved, the people before them can still change the claim.
+const SALESMAN_EDITS: ClaimStatus[] = ["Draft", "Returned", "Pending supervisor"];
+const SUPERVISOR_EDITS: ClaimStatus[] = ["Draft", "Returned", "Pending supervisor", "Pending Colgate"];
+type ClaimEvent = { at: string; actor_name: string | null; action: string; note: string | null };
+const fmtAt = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
 type Item = { key: string; name: string; url?: string; file?: File; path?: string | null; fileId?: number };
 
@@ -36,10 +41,10 @@ export default function Claims() {
 
   return (
     <>
-      <PageHeader title="Claims · PAF Forms" sub="Fill the form on screen, attach photos and documents, supervisor approves, print in the same layout as your Excel template"
+      <PageHeader title="Claims · PAF Forms" sub="Fill the form on screen and attach photos. The supervisor checks it, then Colgate gives the final approval. Print in the same layout as your Excel template"
         right={canCreate ? <button onClick={() => setCreating(true)} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"><Plus size={16} /> New claim</button> : undefined} />
       <div className="mb-4 flex flex-wrap gap-2">
-        {(["All", ...flow, "Rejected"] as const).map((s) => (
+        {(["All", ...flow, "Returned"] as const).map((s) => (
           <button key={s} onClick={() => setFilter(s)} className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset ${filter === s ? "bg-slate-900 text-white ring-slate-900" : "bg-white text-slate-600 ring-slate-300 hover:bg-slate-50"}`}>
             {s} {s !== "All" && <span className="opacity-60">({mine.filter((c) => c.status === s).length})</span>}
           </button>
@@ -101,7 +106,7 @@ export default function Claims() {
 }
 
 function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null; files: ClaimFile[]; onClose: () => void; onChanged: () => Promise<void> }) {
-  const { can, salesmanCode: mySalesman } = useRole();
+  const { can, role, salesmanCode: mySalesman } = useRole();
   const { customers, salesmen } = useData();
   const seesAll = can("view_all_data");
   const isNew = claim === null;
@@ -110,7 +115,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
   const [customer, setCustomer] = useState(claim?.customer ?? "");
   const [customerCode, setCustomerCode] = useState<string | null>(claim?.customerCode ?? null);
   const [salesmanCode, setSalesmanCode] = useState<string | null>(claim?.salesmanCode ?? (seesAll ? salesmen[0]?.code ?? null : mySalesman));
-  const [status, setStatus] = useState<ClaimStatus>(claim?.status ?? "Draft");
+  const status: ClaimStatus = claim?.status ?? "Draft";
   const [remark, setRemark] = useState(claim?.remark ?? "");
   const [values, setValues] = useState<Values>(() => {
     if (claim && Object.keys(claim.values).length) return recompute(FORMS[claim.formKey], claim.values); // refreshes line numbers, Cost % and the fixed name on older claims
@@ -132,13 +137,32 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
 
   const def = FORMS[formKey];
   const isMine = seesAll || claim?.salesmanCode === mySalesman;
-  const editable = isNew ? can("claims_create") : status === "Draft" && can("claims_edit_draft") && isMine;
+  // Who can still change the claim: the salesman until the supervisor acts, the supervisor until Colgate approves.
+  const editable = isNew ? can("claims_create") : (can("claims_approve") && SUPERVISOR_EDITS.includes(status)) || (can("claims_edit_draft") && isMine && SALESMAN_EDITS.includes(status));
+  const canSubmit = editable && (isNew || status === "Draft" || status === "Returned");
   const [editing, setEditing] = useState(false);
   const [drag, setDrag] = useState(false);
-  const canApprove = can("claims_approve") && claim?.status === "Pending supervisor";
+  const canApprove = !isNew && can("claims_approve") && status === "Pending supervisor";
+  const isPrincipal = role === "principal";
+  const canFinal = !isNew && isPrincipal && status === "Pending Colgate";
+  const canReturn = !isNew && ((can("claims_approve") && (status === "Pending supervisor" || status === "Pending Colgate")) || canFinal);
+  const canPullBack = !isNew && editable && status === "Pending supervisor";
+  const canPay = !isNew && can("claims_pay") && status === "Approved by Colgate";
+  const canDelete = !isNew && editable;
+  const [asking, setAsking] = useState<null | "return" | "delete">(null);
+  const [reason, setReason] = useState("");
+  const [events, setEvents] = useState<ClaimEvent[]>([]);
   // The Customer representative name on the form always follows the customer chosen above.
   const custNameCell = signatureCells(def.layout).name[0];
-  const shownValues = useMemo(() => (customer ? { ...values, [custNameCell]: customer } : values), [values, customer, custNameCell]);
+  const sigCells = signatureCells(def.layout);
+  const approvedByColgate = !!claim && (status === "Approved by Colgate" || status === "Paid") && !!claim.principalName;
+  const shownValues = useMemo(() => {
+    const v = customer ? { ...values, [custNameCell]: customer } : { ...values };
+    // The Colgate representative box shows who approved and when.
+    if (approvedByColgate && claim) { v[sigCells.name[3]] = claim.principalName.toUpperCase(); v[sigCells.date[3]] = toDisplayDate(claim.principalOn); }
+    return v;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values, customer, custNameCell, approvedByColgate, claim?.principalName, claim?.principalOn]);
   const total = lastNum(values.H37);
   // A claim can only be for a customer appointed to the salesman. The list is theirs alone, and typing a name that is not on it is not accepted.
   const myCustomers = useMemo(() => customers.filter((c) => !!salesmanCode && c.salesman === salesmanCode), [customers, salesmanCode]);
@@ -168,6 +192,14 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // History of the claim: who did what and when.
+  useEffect(() => {
+    if (!claim) return;
+    let active = true;
+    supabase.from("claim_events").select("at, actor_name, action, note").eq("claim_id", claim.id).order("at", { ascending: true }).then(({ data }) => { if (active) setEvents((data ?? []) as ClaimEvent[]); });
+    return () => { active = false; };
+  }, [claim]);
 
   const setValue = (a: string, v: string) => setValues((p) => recompute(def, { ...p, [a]: v }));
 
@@ -214,14 +246,16 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
     if (docInput.current) docInput.current.value = "";
   }
 
-  async function save(nextStatus: ClaimStatus) {
+  async function save(submit: boolean) {
     setBusy(true); setError(null);
     try {
       const amount = lastNum(values.H37) || lastNum(values[def.totalCell ?? "H37"]);
-      const row = { form_key: formKey, customer_code: customerCode, customer_name: customer, salesman_code: salesmanCode, amount, status: "Draft" as ClaimStatus, remark, form_values: shownValues, updated_at: new Date().toISOString() };
+      const salesmanName = salesmen.find((x) => x.code === salesmanCode)?.name ?? claim?.salesman ?? null;
+      // The status is never written here: it only moves through the approval buttons.
+      const row = { form_key: formKey, customer_code: customerCode, customer_name: customer, salesman_code: salesmanCode, salesman_name: salesmanName, amount, remark, form_values: shownValues, updated_at: new Date().toISOString() };
       let id = claim?.id ?? "";
       if (isNew) {
-        const { data, error: e } = await supabase.from("claims").insert(row).select("id").single();
+        const { data, error: e } = await supabase.from("claims").insert({ ...row, status: "Draft" }).select("id").single();
         if (e) throw e;
         id = data.id as string;
       } else {
@@ -241,9 +275,9 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
           if (ins.error) throw ins.error;
         }
       }
-      if (nextStatus !== "Draft") {
-        // Files are attached while the claim is still a draft; then it goes to the approver.
-        const fin = await supabase.from("claims").update({ status: nextStatus, updated_at: new Date().toISOString() }).eq("id", id);
+      if (submit) {
+        // Files are attached first; then the claim goes to the supervisor.
+        const fin = await supabase.rpc("claim_action", { p_id: id, p_action: "submit" });
         if (fin.error) throw fin.error;
       }
       await onChanged();
@@ -254,13 +288,28 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
     setBusy(false);
   }
 
-  async function decide(next: ClaimStatus) {
+  async function decide(action: "pull_back" | "supervisor_approve" | "return" | "principal_approve" | "mark_paid", note?: string) {
     setBusy(true); setError(null);
-    const { error: e } = await supabase.from("claims").update({ status: next, updated_at: new Date().toISOString() }).eq("id", claim!.id);
+    const { error: e } = await supabase.rpc("claim_action", { p_id: claim!.id, p_action: action, p_note: note ?? null });
     if (e) { setError(e.message); setBusy(false); return; }
-    setStatus(next);
     await onChanged();
     onClose();
+  }
+
+  async function remove() {
+    setBusy(true); setError(null);
+    try {
+      // Attached files go first; the claim and its history entry follow. Who deleted it stays in the history log.
+      const paths = [...photos, ...docs].map((x) => x.path).filter((x): x is string => !!x);
+      if (paths.length) { const r = await supabase.storage.from("claim-files").remove(paths); if (r.error) throw r.error; }
+      const { error: e } = await supabase.from("claims").delete().eq("id", claim!.id);
+      if (e) throw e;
+      await onChanged();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : (e as { message?: string }).message ?? "Could not delete.");
+      setBusy(false);
+    }
   }
 
   return (
@@ -278,17 +327,17 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
             <button onClick={() => window.print()} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"><Printer size={14} /> Print / PDF</button>
             {editable && (
               <>
-                <button disabled={busy || !customerOk} onClick={() => void save("Draft")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">Save draft</button>
-                <button disabled={busy || !customerOk} onClick={() => void save("Pending supervisor")} className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40">{busy ? "Saving…" : "Submit for approval"}</button>
+                <button disabled={busy || !customerOk} onClick={() => void save(false)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">{isNew || status === "Draft" ? "Save draft" : "Save changes"}</button>
+                {canSubmit && <button disabled={busy || !customerOk} onClick={() => void save(true)} className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40">{busy ? "Saving…" : "Submit to supervisor"}</button>}
               </>
             )}
-            {canApprove && (
-              <>
-                <button disabled={busy} onClick={() => void decide("Approved")} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Approve</button>
-                <button disabled={busy} onClick={() => void decide("Rejected")} className="rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Reject</button>
-              </>
-            )}
-            {status === "Pending supervisor" && !can("claims_approve") && <span className="text-xs text-amber-700">Waiting for approval</span>}
+            {canPullBack && <button disabled={busy} onClick={() => void decide("pull_back")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">Pull back to draft</button>}
+            {canApprove && <button disabled={busy} onClick={() => void decide("supervisor_approve")} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Approve and send to Colgate</button>}
+            {canFinal && <button disabled={busy} onClick={() => void decide("principal_approve")} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Give final approval</button>}
+            {canPay && <button disabled={busy} onClick={() => void decide("mark_paid")} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Mark as Paid</button>}
+            {canReturn && <button disabled={busy} onClick={() => { setAsking("return"); setReason(""); }} className="rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Return with reason</button>}
+            {canDelete && <button disabled={busy} onClick={() => setAsking("delete")} className="inline-flex items-center gap-1 rounded-md border border-rose-300 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-40"><Trash2 size={14} /> Delete</button>}
+            {!isNew && !editable && !canApprove && !canFinal && !canPay && <span className="text-xs text-slate-500">{status === "Approved by Colgate" || status === "Paid" ? "Locked: Colgate has approved this claim" : "View only"}</span>}
             <button onClick={onClose} aria-label="Close" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
           </div>
         </div>
@@ -318,9 +367,48 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
 
         <div className="grid gap-4 p-3 sm:p-5 lg:grid-cols-[minmax(340px,5fr)_minmax(0,7fr)]">
           <div className="no-print min-w-0 space-y-4">
+            {!isNew && status === "Returned" && (
+              <p role="status" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+                <b>Returned: </b>{[...events].reverse().find((e) => e.action.startsWith("Returned"))?.note ?? "Please correct the claim and submit it again."}
+              </p>
+            )}
+            {asking === "return" && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <label className="block text-sm font-medium text-slate-700">Reason (required)
+                  <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} placeholder="Tell the salesman what to correct" className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm" />
+                </label>
+                <div className="mt-2 flex gap-2">
+                  <button disabled={busy || !reason.trim()} onClick={() => void decide("return", reason.trim())} className="rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Return claim</button>
+                  <button onClick={() => setAsking(null)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm">Cancel</button>
+                </div>
+              </div>
+            )}
+            {asking === "delete" && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+                <p>Delete {claim?.id}? The claim and its attached files are removed. Who deleted it and when stays in the history log.</p>
+                <div className="mt-2 flex gap-2">
+                  <button disabled={busy} onClick={() => void remove()} className="rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Yes, delete</button>
+                  <button onClick={() => setAsking(null)} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm">Keep it</button>
+                </div>
+              </div>
+            )}
+            {!isNew && events.length > 0 && (
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="mb-2 text-sm font-semibold text-slate-700">History</div>
+                <ol className="space-y-2 border-l border-slate-200 pl-3">
+                  {[...events].reverse().map((h, i) => (
+                    <li key={i} className="text-sm">
+                      <div className="text-slate-800">{h.action}</div>
+                      <div className="text-xs text-slate-500">{h.actor_name || "System"}, {fmtAt(h.at)}</div>
+                      {h.note && <div className="mt-0.5 text-xs text-slate-600">&ldquo;{h.note}&rdquo;</div>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
             {editable && (
               <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <div className="mb-1.5 text-sm font-semibold text-slate-800">Ready to submit?</div>
+                <div className="mb-1.5 text-sm font-semibold text-slate-800">{canSubmit ? "Ready to submit?" : "Check before saving"}</div>
                 <ul className="space-y-1">
                   {checklist.map((c) => <li key={c.text} className={`flex items-center gap-2 text-sm ${c.ok ? "text-emerald-700" : "text-slate-500"}`}>{c.ok ? <Check size={15} /> : <span className="inline-block h-3.5 w-3.5 rounded-full border border-slate-300" />}{c.text}</li>)}
                 </ul>

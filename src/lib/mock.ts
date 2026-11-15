@@ -169,7 +169,7 @@ export const getPendingInvoices = (customers: Customer[]) =>
   pendingSeed.map(([inv, i, driver, status, age]) => ({ inv, customer: customers.length ? customers[i % customers.length].name : "—", driver, status, age }));
 
 // ---- Claims (PAF) ----
-export type ClaimStatus = "Draft" | "Pending supervisor" | "Approved" | "Sent to principal" | "Paid" | "Rejected";
+export type ClaimStatus = "Draft" | "Pending supervisor" | "Pending Colgate" | "Approved by Colgate" | "Paid" | "Returned";
 export type Claim = {
   id: string;
   formKey: FormKey;
@@ -182,6 +182,9 @@ export type Claim = {
   submitted: string;
   attachments: number;
   remark: string;
+  /** who gave the Colgate approval, and when (yyyy-mm-dd) */
+  principalName: string;
+  principalOn: string;
   values: Record<string, string>;
 };
 

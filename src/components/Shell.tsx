@@ -145,6 +145,8 @@ function Gate({ children }: { children: ReactNode }) {
     if (loading) return;
     if (pathname.startsWith("/portal")) return;
     if (session && profile?.role === "distributor") { router.replace("/portal"); return; }
+    // Colgate (principal) only ever sees the Claims page and their own account.
+    if (session && profile?.role === "principal" && pathname !== "/claims" && pathname !== "/account" && !onLogin) { router.replace("/claims"); return; }
     if (!session && !onLogin) router.replace("/login");
     if (session && onLogin) router.replace("/");
   }, [loading, session, profile, onLogin, pathname, router]);

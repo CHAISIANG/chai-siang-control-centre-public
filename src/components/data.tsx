@@ -32,6 +32,7 @@ const DataCtx = createContext<Ctx | null>(null);
 type ClaimRow = {
   id: string; form_key: FormKey; customer_code: string | null; customer_name: string; salesman_code: string | null; amount: number | string;
   status: ClaimStatus; remark: string | null; form_values: Record<string, string>; submitted_on: string | null;
+  salesman_name: string | null; principal_name: string | null; principal_on: string | null;
   claim_files: { id: number; kind: "photo" | "document"; file_name: string; storage_path: string | null }[];
 };
 type LorryRow = { lorry_no: string; driver: string | null; route: string | null; status: Lorry["status"]; invoices: number; load_pct: number };
@@ -97,9 +98,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const nameOf = new Map(salesmen.map((s) => [s.code, s.name]));
     const claims: Claim[] = state.claimRows.map((c) => ({
       id: c.id, formKey: c.form_key, customer: c.customer_name, customerCode: c.customer_code,
-      salesman: c.salesman_code ? nameOf.get(c.salesman_code) ?? c.salesman_code : "—", salesmanCode: c.salesman_code,
+      salesman: c.salesman_code ? nameOf.get(c.salesman_code) ?? c.salesman_name ?? c.salesman_code : "—", salesmanCode: c.salesman_code,
       amount: Number(c.amount), status: c.status, submitted: fmtDay(c.submitted_on), attachments: c.claim_files.length,
-      remark: c.remark ?? "", values: c.form_values ?? {},
+      remark: c.remark ?? "", principalName: c.principal_name ?? "", principalOn: c.principal_on ?? "", values: c.form_values ?? {},
     }));
     const claimFiles: ClaimFile[] = state.claimRows.flatMap((c) => c.claim_files.map((f) => ({ id: f.id, claimId: c.id, kind: f.kind, name: f.file_name, path: f.storage_path })));
     return {

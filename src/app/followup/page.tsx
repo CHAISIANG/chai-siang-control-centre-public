@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Card, Kpi, KpiStrip, PageHeader, Td, Th } from "@/components/ui";
+import { OverdueVsOwed } from "@/components/charts";
 import { useRole } from "@/components/role";
 import { useData } from "@/components/data";
 import { supabase } from "@/lib/supabase";
@@ -99,7 +100,21 @@ export default function FollowUp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [custs, filter, q]);
 
-  const totalOwed = custs.reduce((s, c) => s + owed(c), 0);
+  // Total owed counts every open invoice (late or not); overdue counts only those past their due date.
+  const allOwed = invs.reduce((s, i) => s + Number(i.outstanding), 0);
+  const allOverdue = invs.reduce((s, i) => s + (i.due_date && i.as_at && dayDiff(i.as_at, i.due_date) > 0 ? Number(i.outstanding) : 0), 0);
+  const overduePct = allOwed ? Math.round((allOverdue / allOwed) * 100) : 0;
+  const bySalesman = useMemo(() => {
+    const m = new Map<string, { name: string; owed: number; overdue: number }>();
+    for (const i of invs) {
+      const code = agentCode(i.agent);
+      const e = m.get(code) ?? { name: nameOf.get(code) ?? (code || "No salesman"), owed: 0, overdue: 0 };
+      e.owed += Number(i.outstanding);
+      if (i.due_date && i.as_at && dayDiff(i.as_at, i.due_date) > 0) e.overdue += Number(i.outstanding);
+      m.set(code, e);
+    }
+    return [...m.values()];
+  }, [invs, nameOf]);
   const noContact = custs.filter((c) => headline(c) === "No contact yet");
   const promised = custs.filter((c) => overdueRows(c).some((r) => stOf(r) === "Promised to pay"));
   const missedCount = custs.filter((c) => overdueRows(c).some(missed)).length;
@@ -137,7 +152,7 @@ export default function FollowUp() {
       <PageHeader title="Collection follow-up" sub={`Record what happened with each overdue invoice. Based on the aging report${asAtText ? ` as at ${asAtText}` : ""}. A paid invoice leaves this list when the next aging report is uploaded.`} />
 
       <KpiStrip>
-        <Kpi label="Overdue amount" value={loading ? "…" : moneyK(totalOwed)} sub={`${custs.length} customers`} />
+        <Kpi label="Total overdue" value={loading ? "…" : moneyK(allOverdue)} sub={`${overduePct}% of the ${moneyK(allOwed)} owed · ${custs.length} customers`} tone={overduePct >= 60 ? "bad" : overduePct >= 40 ? "warn" : "good"} pct={overduePct} />
         <Kpi label="Not contacted yet" value={loading ? "…" : `${noContact.length}`} sub="Start here" tone={noContact.length ? "bad" : "good"} />
         <Kpi label="Promised to pay" value={loading ? "…" : `${promised.length}`} sub={missedCount ? `${missedCount} missed their date` : "Check on the promised date"} tone={missedCount ? "bad" : "warn"} />
         <Kpi label="In dispute" value={loading ? "…" : `${disputes.length}`} sub="Needs the supervisor" tone={disputes.length ? "bad" : "good"} />
@@ -151,6 +166,8 @@ export default function FollowUp() {
         ))}
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search customer name or code" className="ml-auto w-full max-w-xs rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
       </div>
+
+      {bySalesman.length > 1 && <Card title="Overdue versus total owed, by salesman" className="mt-4"><OverdueVsOwed data={bySalesman} /></Card>}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_1fr]">
         <Card title={`Customers with overdue invoices (${list.length})`}>

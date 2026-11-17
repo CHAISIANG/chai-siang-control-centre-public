@@ -86,7 +86,7 @@ export function Achievement({ data }: { data: { name: string; sales: number; tar
         <BarChart data={rows} layout="vertical" margin={{ top: 18, right: 44, left: 0, bottom: 0 }} barCategoryGap={8}>
           <CartesianGrid horizontal={false} stroke={GRID} />
           <XAxis type="number" domain={[0, max]} ticks={ticks} tick={axis} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
-          <YAxis type="category" dataKey="name" tick={{ ...axis, fill: "#36424b" }} tickLine={false} axisLine={false} width={120} />
+          <YAxis type="category" dataKey="name" tick={{ ...axis, fill: "#36424b" }} tickLine={false} axisLine={false} width={140} />
           <ReferenceLine x={100} stroke="#36424b" strokeDasharray="4 3" label={{ value: "Target", position: "top", fontSize: 11, fill: INK_MUTED }} />
           <Tooltip cursor={{ fill: "rgba(31,92,138,0.06)" }} content={({ active, payload }) => active && payload?.length ? (
             <TipBox title={String(payload[0].payload.name)} rows={[["Sales", rmFull(payload[0].payload.sales)], ["Target", rmFull(payload[0].payload.target)], ["Achieved", `${payload[0].payload.pct}%`]]} />
@@ -114,7 +114,7 @@ export function ChannelMix({ data, top = 6 }: { data: { channel: string; sales: 
         <li key={r.channel} onMouseEnter={() => setHover(r.channel)} onMouseLeave={() => setHover(null)} className="group">
           <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
             <span className="truncate text-slate-700">{r.channel || "No channel"}</span>
-            <span className="shrink-0 tabular-nums text-slate-900"><b className="font-semibold">{Math.round((r.sales / total) * 100)}%</b> <span className="text-slate-500">{hover === r.channel ? rmFull(r.sales) : rmShort(r.sales)}</span></span>
+            <span className="shrink-0 tabular-nums text-slate-900"><b className="font-semibold">{r.sales / total < 0.005 ? "<1" : Math.round((r.sales / total) * 100)}%</b> <span className="text-slate-500">{hover === r.channel ? rmFull(r.sales) : rmShort(r.sales)}</span></span>
           </div>
           <div className="h-2.5 w-full rounded-full bg-slate-100">
             <div className="h-full rounded-full transition-[width]" style={{ width: `${(r.sales / max) * 100}%`, background: r.channel === "Other" ? BLUE_SOFT : BLUE }} />
@@ -129,7 +129,7 @@ export function ChannelMix({ data, top = 6 }: { data: { channel: string; sales: 
 const AGE = ["Current", "1–30 days", "31–60 days", "61–90 days", "Over 90 days"];
 const AGE_COL = ["#d2e3ee", "#7aa9c6", "#2f6f9c", "#143d5c", "#0b2233"];
 /** What customers owe, split by how late it is: one bar, darker the later it is. */
-export function AgingProfile({ buckets }: { buckets: number[] }) {
+export function AgingProfile({ buckets, compact = false }: { buckets: number[]; compact?: boolean }) {
   const total = buckets.reduce((s, v) => s + v, 0);
   const [hover, setHover] = useState<number | null>(null);
   if (!total) return <p className="text-sm text-slate-500">No money owed in the latest aging report.</p>;
@@ -141,7 +141,7 @@ export function AgingProfile({ buckets }: { buckets: number[] }) {
             className={`h-full transition-opacity ${hover !== null && hover !== i ? "opacity-60" : ""}`} style={{ width: `${(v / total) * 100}%`, background: AGE_COL[i], minWidth: 3 }} />
         ))}
       </div>
-      <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-5">
+      <ul className={`mt-4 grid grid-cols-2 gap-x-4 gap-y-3 ${compact ? "" : "sm:grid-cols-5"}`}>
         {buckets.map((v, i) => (
           <li key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} className={`rounded-md px-1 py-0.5 ${hover === i ? "bg-slate-50" : ""}`}>
             <div className="flex items-center gap-1.5 text-[13px] text-slate-600"><span aria-hidden className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: AGE_COL[i] }} />{AGE[i]}</div>
@@ -179,7 +179,8 @@ export function MonthlyTrend({ data }: { data: { month: string; sales: number; t
 
 /** Overdue against total owed, per salesman: the pale track is everything owed, the dark part is what is already late. */
 export function OverdueVsOwed({ data }: { data: { name: string; owed: number; overdue: number }[] }) {
-  const rows = data.filter((d) => d.owed > 0).sort((a, b) => b.overdue - a.overdue);
+  const isOther = (n: string) => n.startsWith("Other customers");
+  const rows = data.filter((d) => d.owed > 0).sort((a, b) => Number(isOther(a.name)) - Number(isOther(b.name)) || b.overdue - a.overdue);
   const max = Math.max(...rows.map((r) => r.owed), 1);
   const [hover, setHover] = useState<string | null>(null);
   const totalOwed = rows.reduce((s, r) => s + r.owed, 0), totalOver = rows.reduce((s, r) => s + r.overdue, 0);

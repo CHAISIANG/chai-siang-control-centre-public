@@ -176,3 +176,34 @@ export function MonthlyTrend({ data }: { data: { month: string; sales: number; t
     </div>
   );
 }
+
+/** Overdue against total owed, per salesman: the pale track is everything owed, the dark part is what is already late. */
+export function OverdueVsOwed({ data }: { data: { name: string; owed: number; overdue: number }[] }) {
+  const rows = data.filter((d) => d.owed > 0).sort((a, b) => b.overdue - a.overdue);
+  const max = Math.max(...rows.map((r) => r.owed), 1);
+  const [hover, setHover] = useState<string | null>(null);
+  const totalOwed = rows.reduce((s, r) => s + r.owed, 0), totalOver = rows.reduce((s, r) => s + r.overdue, 0);
+  if (!rows.length) return <p className="text-sm text-slate-500">No money owed in the latest aging report.</p>;
+  return (
+    <div>
+      <Legend items={[["Overdue", BLUE], ["Not yet due", "#d2e3ee"]]} />
+      <ul className="space-y-3">
+        {rows.map((r) => {
+          const share = r.owed ? Math.round((r.overdue / r.owed) * 100) : 0;
+          return (
+            <li key={r.name} onMouseEnter={() => setHover(r.name)} onMouseLeave={() => setHover(null)}>
+              <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+                <span className="truncate text-slate-700">{r.name}</span>
+                <span className="tabular-nums text-slate-900"><b className="font-semibold">{rmShort(r.overdue)}</b> <span className="text-slate-500">overdue of {rmShort(r.owed)} · </span><b className={share >= 60 ? "text-rose-700" : "text-slate-900"}>{share}%</b></span>
+              </div>
+              <div className="h-3 rounded-full bg-[#d2e3ee]" style={{ width: `${(r.owed / max) * 100}%`, minWidth: 6 }} title={`${r.name}: ${rmFull(r.overdue)} overdue of ${rmFull(r.owed)} owed (${share}%)`}>
+                <div className={`h-full rounded-full transition-opacity ${hover && hover !== r.name ? "opacity-50" : ""}`} style={{ width: `${share}%`, background: BLUE }} />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-3 text-sm text-slate-600">All together: <b className="text-slate-900">{rmFull(totalOver)}</b> overdue versus <b className="text-slate-900">{rmFull(totalOwed)}</b> owed ({totalOwed ? Math.round((totalOver / totalOwed) * 100) : 0}% is late).</p>
+    </div>
+  );
+}

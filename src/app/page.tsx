@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Achievement, AgingProfile, ChannelMix, CumulativeSales, MonthlyTrend } from "@/components/charts";
+import { Achievement, AgingProfile, ChannelMix, CumulativeSales, MonthlyTrend, OverdueVsOwed } from "@/components/charts";
 import { CheckCircle2, Circle } from "lucide-react";
 import { useRole } from "@/components/role";
 import { useData } from "@/components/data";
@@ -32,7 +32,10 @@ export default function Dashboard() {
   const late90 = custs.filter((c) => c.aging[4] > 0).sort((a, b) => b.aging[4] - a.aging[4]);
   const overdue90 = custs.reduce((s, c) => s + c.aging[4], 0);
   const owed = custs.reduce((s, c) => s + c.outstanding, 0);
-  const overdue60 = custs.reduce((s, c) => s + c.aging[3] + c.aging[4], 0);
+  // Everything past its due date: the aging buckets after "not due".
+  const overdueAll = custs.reduce((s, c) => s + c.aging[1] + c.aging[2] + c.aging[3] + c.aging[4], 0);
+  const overduePct = owed ? Math.round((overdueAll / owed) * 100) : 0;
+  const overdueBySalesman = list.map((s) => { const mine = custs.filter((c) => c.salesman === s.code); return { name: s.name, owed: mine.reduce((a, c) => a + c.outstanding, 0), overdue: mine.reduce((a, c) => a + c.aging[1] + c.aging[2] + c.aging[3] + c.aging[4], 0) }; });
   const del = drivers.reduce((a, d) => ({ t: a.t + d.total, d: a.d + d.delivered, f: a.f + d.failed }), { t: 0, d: 0, f: 0 });
   const myClaims = sel ? claims.filter((c) => c.salesman === (first?.name ?? "")) : claims;
   const pendingClaims = myClaims.filter((c) => c.status === "Pending supervisor");
@@ -110,8 +113,8 @@ export default function Dashboard() {
         </div>
         <div className="grid grid-cols-2 lg:col-span-3 [&>*]:border-slate-200 [&>*:nth-child(n+3)]:border-t [&>*:nth-child(even)]:border-l">
           <Kpi label="Accounts that bought (ERC)" value={`${st.erc}%`} sub={`${fmt(st.active)} of ${fmt(st.rl)} registered accounts`} tone={st.erc >= 70 ? "good" : st.erc >= 50 ? "warn" : "bad"} pct={st.erc} />
-          <Kpi label={`Owed to us${asAt ? ` (aging ${asAt.slice(8)}/${asAt.slice(5, 7)})` : ""}`} value={rmK(owed)} sub={`${rmK(overdue60)} is more than 60 days late`} tone={owed && overdue60 / owed > 0.15 ? "bad" : "warn"} />
-          <Kpi label="Over 90 days late" value={rmK(overdue90)} sub={`${late90.length} customers`} tone={late90.length > 10 ? "bad" : late90.length ? "warn" : "good"} />
+          <Kpi label={`Total owed to us${asAt ? ` (aging ${asAt.slice(8)}/${asAt.slice(5, 7)})` : ""}`} value={rmK(owed)} sub={`${rmK(owed - overdueAll)} not yet due`} />
+          <Kpi label="Total overdue" value={rmK(overdueAll)} sub={`${overduePct}% of the ${rmK(owed)} owed · ${rmK(overdue90)} is over 90 days`} tone={overduePct >= 60 ? "bad" : overduePct >= 40 ? "warn" : "good"} pct={overduePct} />
           {showLogistics ? (
             <Kpi label="Delivered today (sample)" value={`${del.d} of ${del.t}`} sub={`${del.t - del.d - del.f} pending, ${del.f} failed`} tone={pct(del.d, del.t) >= 80 ? "good" : "warn"} pct={pct(del.d, del.t)} />
           ) : (
@@ -132,6 +135,7 @@ export default function Dashboard() {
         <Card title="Sales mix by channel · this year" right={<span className="text-xs text-slate-500">Share of net sales</span>}><ChannelMix data={channelMix} /></Card>
         {!isNov && <Card title="What customers owe, by how late"><AgingProfile buckets={agingTotals} /></Card>}
       </div>
+      <Card title="Overdue versus total owed, by salesman" className="mt-5"><OverdueVsOwed data={overdueBySalesman} /></Card>
       {isNov && <Card title={`What customers owe, by how late${asAt ? ` · aging ${asAt.slice(8)}/${asAt.slice(5, 7)}` : ""}`} className="mt-5"><AgingProfile buckets={agingTotals} /></Card>}
 
       <div className="mt-5 grid gap-5 lg:grid-cols-3">

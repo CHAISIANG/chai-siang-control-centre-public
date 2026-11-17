@@ -2,24 +2,24 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database } from "lucide-react";
+import { LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall } from "lucide-react";
 import { RoleProvider, useRole } from "./role";
 import { AuthProvider, useAuth } from "./auth";
 import { DataProvider, useData } from "./data";
-import { TODAY } from "@/lib/mock";
 
-type Nav = { href: string; label: string; icon: typeof Users; perm: string };
+type Nav = { href: string; label: string; icon: typeof Users; perm: string; group?: string };
 const NAV: Nav[] = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard, perm: "page_dashboard" },
-  { href: "/sales", label: "Sales & KPI", icon: TrendingUp, perm: "page_sales" },
-  { href: "/customers", label: "Customers & Credit", icon: Users, perm: "page_customers" },
-  { href: "/logistics", label: "Logistics", icon: Truck, perm: "page_logistics" },
-  { href: "/claims", label: "Claims (PAF)", icon: FileText, perm: "page_claims" },
-  { href: "/upload", label: "Data Upload", icon: Upload, perm: "page_upload" },
-  { href: "/master", label: "Master data", icon: Database, perm: "page_master" },
-  { href: "/test-run", label: "Real data test run", icon: FileSpreadsheet, perm: "page_upload" },
-  { href: "/my-orders", label: "My PO orders", icon: ClipboardList, perm: "page_po_mine" },
-  { href: "/distributors", label: "Distributor orders", icon: PackageCheck, perm: "page_portal" },
+  { href: "/", label: "Dashboard", icon: LayoutDashboard, perm: "page_dashboard", group: "Overview" },
+  { href: "/sales", label: "Sales & KPI", icon: TrendingUp, perm: "page_sales", group: "Sales" },
+  { href: "/customers", label: "Customers & Credit", icon: Users, perm: "page_customers", group: "Sales" },
+  { href: "/followup", label: "Collection follow-up", icon: PhoneCall, perm: "page_customers", group: "Sales" },
+  { href: "/claims", label: "Claims (PAF)", icon: FileText, perm: "page_claims", group: "Sales" },
+  { href: "/my-orders", label: "My PO orders", icon: ClipboardList, perm: "page_po_mine", group: "Sales" },
+  { href: "/distributors", label: "Distributor orders", icon: PackageCheck, perm: "page_portal", group: "Sales" },
+  { href: "/logistics", label: "Logistics", icon: Truck, perm: "page_logistics", group: "Operations" },
+  { href: "/upload", label: "Data upload", icon: Upload, perm: "page_upload", group: "Data" },
+  { href: "/master", label: "Master data", icon: Database, perm: "page_master", group: "Data" },
+  { href: "/test-run", label: "Real data test run", icon: FileSpreadsheet, perm: "page_upload", group: "Data" },
 ];
 const FIN_NAV: Nav[] = [
   { href: "/finance", label: "Overview", icon: Wallet, perm: "page_finance" },
@@ -38,7 +38,7 @@ const ADMIN_NAV: Nav[] = [
 function Inner({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { can, realCan, role, canPreview, roles, setRole, previewing, salesmanCode, setSalesmanCode, roleLabel } = useRole();
-  const { salesmen, error, loading } = useData();
+  const { salesmen, error, loading, asAt } = useData();
   const { profile, signOut } = useAuth();
   const [open, setOpen] = useState(false);
   const [dark, setDark] = useState(false);
@@ -60,55 +60,63 @@ function Inner({ children }: { children: ReactNode }) {
   ];
   const finItems = FIN_NAV.filter((n) => can(n.perm));
   const isActive = (href: string) => (href === "/" ? pathname === "/" : href === "/finance" ? pathname === "/finance" : pathname.startsWith(href));
-  const link = (n: Nav, sub = false) => {
+  const link = (n: Nav) => {
     const active = isActive(n.href);
     return (
       <Link key={n.href} href={n.href} onClick={() => setOpen(false)} aria-current={active ? "page" : undefined}
-        className={`flex items-center gap-3 border-l-4 py-3 pr-4 text-base ${sub ? "pl-7" : "pl-4"} ${active ? "border-signal bg-signal-soft font-medium text-slate-900" : "border-transparent text-slate-600 hover:bg-slate-100"}`}>
-        <n.icon size={18} /> {n.label}
+        className={`relative mx-2 flex items-center gap-3 rounded-md px-3 py-2 text-[15px] transition-colors ${active ? "bg-white/10 font-medium text-white" : "text-white/65 hover:bg-white/5 hover:text-white"}`}>
+        {active && <span aria-hidden className="absolute -left-2 bottom-1.5 top-1.5 w-[3px] rounded-r bg-signal" />}
+        <n.icon size={17} className={active ? "text-signal" : "text-white/50"} /> {n.label}
       </Link>
     );
   };
-  const sel = "rounded-md border border-slate-300 bg-white px-2 py-1.5 text-base text-slate-700";
+  const section = (label: string, list: Nav[]) => list.length > 0 && (
+    <div key={label} role="group" aria-label={label} className="mt-5 first:mt-1">
+      <div className="px-5 pb-1.5 text-xs font-medium text-white/40">{label}</div>
+      <div className="space-y-0.5">{list.map((n) => link(n))}</div>
+    </div>
+  );
+  const groups = ["Overview", "Sales", "Operations", "Data"];
+  const mainItems = items.filter((n) => NAV.includes(n));
+  const current = [...NAV, ...FIN_NAV, ...ADMIN_NAV, { href: "/account", label: "My account", icon: KeyRound, perm: "" }].filter((n) => isActive(n.href)).sort((a, b) => b.href.length - a.href.length)[0];
+  const initials = (profile?.full_name ?? "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+  const asAtText = asAt ? new Date(asAt + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : null;
+  const sel = "rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700";
+  const iconBtn = "rounded-md border border-slate-200 p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900";
 
   return (
     <div className="flex min-h-screen text-slate-800">
       {open && <div className="fixed inset-0 z-30 bg-slate-900/50 lg:hidden" onClick={() => setOpen(false)} />}
-      <aside className={`fixed inset-y-0 left-0 z-40 w-56 transform border-r border-slate-200 bg-white text-slate-700 transition-transform lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="flex items-center justify-between gap-3 px-4 py-5">
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-60 transform flex-col bg-rail text-white transition-transform lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
+        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
           <div className="flex items-center gap-3">
-            <span className="plate !px-2 font-display text-xl" aria-hidden>CS</span>
+            <span className="plate !px-1.5 font-display text-lg" aria-hidden>CS</span>
             <div className="leading-tight">
-              <div className="text-[17px] font-semibold text-slate-900">Chai Siang</div>
-              <div className="text-sm text-slate-500">Control centre</div>
+              <div className="text-[15px] font-semibold text-white">Chai Siang</div>
+              <div className="text-xs text-white/55">Control centre</div>
             </div>
           </div>
-          <button className="p-2 lg:hidden" onClick={() => setOpen(false)} aria-label="Close menu"><X size={20} /></button>
+          <button className="p-2 text-white/70 lg:hidden" onClick={() => setOpen(false)} aria-label="Close menu"><X size={20} /></button>
         </div>
-        <nav className="mt-2 max-h-[calc(100vh-5.5rem)] overflow-y-auto pb-4">
-          {items.filter((n) => NAV.includes(n)).map((n) => link(n))}
-          {finItems.length > 0 && (
-            <div role="group" aria-label="Finance">
-              <div className="mt-2 border-t border-slate-200 px-4 pb-1 pt-3 text-sm font-semibold text-slate-500">Finance</div>
-              {finItems.map((n) => link(n, true))}
-            </div>
-          )}
-          <div className="mt-2 border-t border-slate-200 pt-1">{items.filter((n) => !NAV.includes(n)).map((n) => link(n))}</div>
+        <nav className="flex-1 overflow-y-auto py-3">
+          {groups.map((g) => section(g, mainItems.filter((n) => n.group === g)))}
+          {section("Finance", finItems)}
+          {section("Admin", items.filter((n) => !NAV.includes(n)))}
         </nav>
+        <div className="border-t border-white/10 px-5 py-3 text-xs text-white/45">Chai Siang Sdn Bhd</div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200 bg-white/95 px-4 py-2.5 backdrop-blur">
-          <button className="-ml-1 p-2 lg:hidden" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={24} /></button>
-          <div className="text-sm text-slate-500">Data as of <span className="font-medium text-slate-800">{TODAY}, 08:20</span></div>
-          <span className="rounded-sm bg-signal-soft px-1.5 py-0.5 text-xs font-medium text-slate-800 ring-1 ring-inset ring-signal/60" title="Sales, customers, claims and lorries are live. Aging, credit limits, collection, deliveries and November are still sample.">Live + sample data</span>
-          <button onClick={toggleTheme} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"} title={dark ? "Light mode" : "Dark mode"} className="ml-auto rounded-md border border-slate-300 p-2 text-slate-700 hover:bg-slate-100 sm:ml-0 sm:order-last">
-            {dark ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
+        <header className="sticky top-0 z-20 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-200 bg-white/95 px-4 py-2.5 backdrop-blur sm:px-6">
+          <button className="-ml-1 rounded-md p-2 text-slate-700 hover:bg-slate-100 lg:hidden" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={22} /></button>
+          <div className="min-w-0">
+            <div className="truncate text-[15px] font-semibold text-slate-900">{current?.label ?? "Chai Siang"}</div>
+            {asAtText && <div className="text-xs text-slate-500">Data as of {asAtText}</div>}
+          </div>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
             {canPreview && (
               <>
-                <label htmlFor="view-as" className="sr-only text-sm text-slate-500 sm:not-sr-only">View as</label>
+                <label htmlFor="view-as" className="sr-only text-sm text-slate-500 md:not-sr-only">View as</label>
                 <select id="view-as" className={sel} value={role} onChange={(e) => setRole(e.target.value)} aria-label="View as role">
                   {roles.filter((r) => r.name !== "pending").map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
                 </select>
@@ -119,14 +127,23 @@ function Inner({ children }: { children: ReactNode }) {
                 )}
               </>
             )}
-            <span className="text-sm text-slate-500">{profile?.full_name} · {roleLabel}</span>
+            <div className="hidden items-center gap-2 border-l border-slate-200 pl-3 sm:flex">
+              <span aria-hidden className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white">{initials}</span>
+              <div className="leading-tight">
+                <div className="text-sm font-medium text-slate-800">{profile?.full_name}</div>
+                <div className="text-xs text-slate-500">{roleLabel}</div>
+              </div>
+            </div>
+            <button onClick={toggleTheme} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"} title={dark ? "Light mode" : "Dark mode"} className={iconBtn}>
+              {dark ? <Sun size={17} /> : <Moon size={17} />}
+            </button>
+            <button onClick={() => void signOut()} aria-label="Sign out" title="Sign out" className={iconBtn}><LogOut size={17} /></button>
           </div>
-          <button onClick={() => void signOut()} aria-label="Sign out" title="Sign out" className="rounded-md border border-slate-300 p-2 text-slate-700 hover:bg-slate-100 sm:order-last"><LogOut size={18} /></button>
         </header>
         {previewing && <div className="border-b border-signal/40 bg-signal-soft px-4 py-1.5 text-sm text-slate-800">Previewing the app as <b>{roleLabel}</b>. You are still signed in as yourself, and the data rules are your own.</div>}
-        <main className="mx-auto w-full max-w-7xl flex-1 p-4 sm:p-6">
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-5 sm:px-8 sm:py-7">
           {error && <p role="alert" className="mb-4 rounded bg-rose-50 px-3 py-2 text-rose-800">Could not load some data: {error}</p>}
-          {loading ? <p className="text-slate-500">Loading your data…</p> : children}
+          {loading ? <p className="flex items-center gap-2 text-slate-500"><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-indigo-600" aria-hidden /> Loading your data…</p> : children}
         </main>
       </div>
     </div>

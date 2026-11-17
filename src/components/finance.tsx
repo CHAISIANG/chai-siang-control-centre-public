@@ -65,7 +65,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Ctx>(() => ({ ...state, canManage: can("finance_manage"), refresh: load, loading: state.loading && allowed }), [state, can, load, allowed]);
   if (!allowed) {
-    return <p className="rounded-xl border border-slate-200 bg-white p-6 text-slate-600">Your role does not include Finance. Ask your administrator to switch it on under Roles &amp; permissions.</p>;
+    return <p className="rounded-xl border border-slate-200 bg-white shadow-sm p-6 text-slate-600">Your role does not include Finance. Ask your administrator to switch it on under Roles &amp; permissions.</p>;
   }
   return <FinCtx.Provider value={value}>{value.loading ? <p className="text-slate-500">Loading finance data…</p> : children}</FinCtx.Provider>;
 }

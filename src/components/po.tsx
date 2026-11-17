@@ -133,7 +133,7 @@ export function PoProvider({ children, needs }: { children: ReactNode; needs: "f
     fileUrl: async (path) => (await supabase.storage.from("po-proofs").createSignedUrl(path, 300)).data?.signedUrl ?? null,
   }), [pos, clients, codes, can, profile, run, upload, load]);
 
-  if (!allowed) return <p className="rounded-xl border border-slate-200 bg-white p-6 text-slate-600">Your role does not include this page. Ask your administrator to switch it on under Roles &amp; permissions.</p>;
+  if (!allowed) return <p className="rounded-xl border border-slate-200 bg-white shadow-sm p-6 text-slate-600">Your role does not include this page. Ask your administrator to switch it on under Roles &amp; permissions.</p>;
   if (state.loading) return <p className="text-slate-500">Loading purchase orders…</p>;
   if (state.error) return <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-800">Purchase orders could not be loaded: {state.error}</p>;
   return <PoCtx.Provider value={value}>{children}</PoCtx.Provider>;

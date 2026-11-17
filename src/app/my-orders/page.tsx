@@ -31,10 +31,10 @@ export default function MyOrders() {
         {err && <p role="alert" className="mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{err}</p>}
         <div className="mb-3 grid grid-cols-3 gap-3">
           {([["Matched", n.ok, "text-emerald-700"], ["Needs checking", n.check, "text-rose-700"], ["Waiting for delivery", n.wait, "text-slate-700"]] as const).map(([l, v, c]) => (
-            <div key={l} className="rounded-xl border border-slate-200 bg-white px-4 py-3"><div className="text-[15px] text-slate-500">{l}</div><div className={`font-display text-[32px] font-semibold leading-tight ${c}`}>{v}</div></div>
+            <div key={l} className="rounded-xl border border-slate-200 bg-white shadow-sm px-4 py-3"><div className="text-[15px] text-slate-500">{l}</div><div className={`font-display text-[32px] font-semibold leading-tight ${c}`}>{v}</div></div>
           ))}
         </div>
-        <div className="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-[15px] text-slate-700">
+        <div className="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm px-4 py-3 text-[15px] text-slate-700">
           <b>Service level</b> over {t.delivered} delivered order{t.delivered === 1 ? "" : "s"}: on time {pct(t.onTime)} · in full {pct(t.inFull)} · accurate {pct(t.accurate)} · perfect {pct(t.perfect)}
         </div>
         {owed.length > 0 && (

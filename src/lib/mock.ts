@@ -40,10 +40,11 @@ export function buildSalesmen(rows: SalesmanRow[], monthly: MonthlyRow[], day: n
       const m = mine.get(i + 1);
       const oct = mine.get(10);
       if (i < NOV || m) {
-        // A real month. November is month to date; the coverage report has no November target, so October's target is pro-rated.
+        // A real month. November is month to date, so its target is the month's target pro-rated to the days so far
+        // (October's target stands in when November has none).
         const sales = Number(m?.net_sales ?? 0);
         let target = Number(m?.sales_target ?? 0);
-        if (i === NOV && !target) target = Math.round(Number(oct?.sales_target ?? 0) * prorate);
+        if (i === NOV) target = Math.round((target || Number(oct?.sales_target ?? 0)) * prorate);
         return { rl: m?.rl_acct ?? 0, active: m?.active_acct ?? 0, erc: Number(m?.erc ?? 0), target, sales, collected: 0 };
       }
       const sales = Math.round(Number(oct?.net_sales ?? 0) * prorate * (0.8 + rnd() * 0.4));

@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Achievement, AgingProfile, ChannelMix, CumulativeSales, MonthlyTrend } from "@/components/charts";
 import { CheckCircle2, Circle } from "lucide-react";
 import { useRole } from "@/components/role";
 import { useData } from "@/components/data";
@@ -41,7 +41,14 @@ export default function Dashboard() {
   const showLogistics = !filterSalesman && can("page_logistics");
   // Jan–Oct only: Nov is a part-month and would look like a false collapse.
   const trend = MONTHS.slice(0, NOV).map((m, i) => { const t = sumStats(list, i); return { month: m, sales: t.sales, target: t.target }; });
-  const bySalesman = list.map((s) => ({ name: s.name.split(" ")[0], sales: s.stats[mi].sales, target: s.stats[mi].target }));
+  const bySalesman = list.map((s) => ({ name: s.name, sales: s.stats[mi].sales, target: s.stats[mi].target }));
+  const channelMix = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of custs) m.set(c.channel || "No channel", (m.get(c.channel || "No channel") ?? 0) + c.ytdSales);
+    return [...m.entries()].map(([channel, sales]) => ({ channel, sales }));
+  }, [custs]);
+  const agingTotals = custs.reduce((a, c) => a.map((v, i) => v + (c.aging[i] ?? 0)), [0, 0, 0, 0, 0]);
+  const waitingColgate = myClaims.filter((c) => c.status === "Pending Colgate");
   const sel2 = "rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700";
   const doneCount = PANELS.filter((p) => verified[p]).length;
   const behind = list.filter((s) => pct(s.stats[mi].sales, s.stats[mi].target) < 90);
@@ -52,6 +59,7 @@ export default function Dashboard() {
     ...(lowCover.length ? [{ tone: "amber" as const, tag: "Coverage", text: `${lowCover.length} salesmen reached fewer than 60% of their accounts: ${lowCover.map((s) => `${s.name} (${s.stats[mi].erc}%)`).join(", ")}.`, href: "/sales" }] : []),
     ...(late90.length ? [{ tone: "amber" as const, tag: "Collection", text: `${late90.length} customers have invoices more than 90 days late, ${rmK(overdue90)} in all. ${rmK(owed)} is owed to us.`, href: "/customers" }] : []),
     ...(pendingClaims.length ? [{ tone: "blue" as const, tag: "Claims", text: `${pendingClaims.length} claims (${rm(pendingClaims.reduce((s, c) => s + c.amount, 0))}) are waiting for the supervisor.`, href: "/claims" }] : []),
+    ...(waitingColgate.length ? [{ tone: "blue" as const, tag: "Colgate", text: `${waitingColgate.length} claims (${rm(waitingColgate.reduce((s, c) => s + c.amount, 0))}) are waiting for Colgate's final approval.`, href: "/claims" }] : []),
     ...(showLogistics && (toDeliver > 0 || del.f > 0) ? [{ tone: "amber" as const, tag: "Delivery", text: `${toDeliver} invoices still to deliver today and ${del.f} failed deliveries to reschedule.`, href: "/logistics" }] : []),
   ];
   const monthLabel = isNov ? `Nov 2026 MTD (1–${mtdDay} Nov)` : `${MONTHS[mi]} 2026`;
@@ -60,7 +68,7 @@ export default function Dashboard() {
     <>
       <PageHeader
         title={filterSalesman ? `My Dashboard · ${(first?.name ?? "")}` : "Company Dashboard"}
-        sub={isNov ? `${monthLabel}, from your coverage and sales reports. November has no target in the report, so October's target is used pro-rata.` : `${monthLabel}, from your coverage and net sales report.`}
+        sub={isNov ? `${monthLabel}, from your coverage and sales reports. November is compared with its target to date (the month's target spread over the days so far).` : `${monthLabel}, from your coverage and net sales report.`}
         right={
           <div className="flex flex-wrap gap-2">
             <select className={sel2} value={mi} onChange={(e) => setMi(Number(e.target.value))} aria-label="Month">
@@ -76,7 +84,7 @@ export default function Dashboard() {
         }
       />
 
-      <section aria-label="What needs attention" className="mb-5 rounded-xl border border-slate-200 border-l-4 border-l-signal bg-white px-4 py-3">
+      <section aria-label="What needs attention" className="mb-5 rounded-xl border border-slate-200 border-l-4 border-l-signal bg-white px-5 py-4 shadow-sm">
         <h2 className="font-display text-xl font-semibold text-slate-900">{attention.length ? "What needs attention today" : "Nothing needs attention right now"}</h2>
         {attention.length > 0 && (
           <ul className="mt-2 divide-y divide-slate-100">
@@ -91,7 +99,7 @@ export default function Dashboard() {
         )}
       </section>
 
-      <section className="grid overflow-hidden rounded-xl border border-slate-200 bg-white lg:grid-cols-5">
+      <section className="grid overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:grid-cols-5">
         <div className="border-b border-slate-200 p-5 lg:col-span-2 lg:border-b-0 lg:border-r">
           <div className="text-sm text-slate-500">{isNov ? "Net sales so far this month" : `Net sales in ${MONTHS[mi]}`}</div>
           <div className="font-display text-[64px] font-semibold leading-none text-slate-900 sm:text-[76px]">{rmK(st.sales)}</div>
@@ -113,55 +121,18 @@ export default function Dashboard() {
       </section>
 
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
-        {isNov ? (
-          <Card title="Daily sales vs daily target (Nov)">
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={daily}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#d8dedf" />
-                  <XAxis dataKey="day" tick={{ fontSize: 13 }} />
-                  <YAxis tick={{ fontSize: 13 }} tickFormatter={(v) => `${Math.round(v / 1000)}K`} />
-                  <Tooltip formatter={(v) => rm(Number(v))} />
-                  <Legend />
-                  <Bar dataKey="sales" name="Sales" fill="#1f5c8a" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="target" name="Target" fill="#bfc8cb" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-        ) : (
-          <Card title={`Sales by salesman · ${MONTHS[mi]}`}>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={bySalesman}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#d8dedf" />
-                  <XAxis dataKey="name" tick={{ fontSize: 13 }} />
-                  <YAxis tick={{ fontSize: 13 }} tickFormatter={(v) => `${Math.round(v / 1000)}K`} />
-                  <Tooltip formatter={(v) => rm(Number(v))} />
-                  <Legend />
-                  <Bar dataKey="sales" name="Net sales" fill="#1f5c8a" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="target" name="Target" fill="#bfc8cb" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-        )}
-        <Card title="Monthly net sales vs target (Jan–Oct)">
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trend}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#d8dedf" />
-                <XAxis dataKey="month" tick={{ fontSize: 13 }} />
-                <YAxis tick={{ fontSize: 13 }} tickFormatter={(v) => `${(v / 1_000_000).toFixed(1)}M`} />
-                <Tooltip formatter={(v) => rm(Number(v))} />
-                <Legend />
-                <Line type="monotone" dataKey="sales" name="Net sales" stroke="#1f5c8a" strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" dataKey="target" name="Target" stroke="#66737b" strokeDasharray="5 4" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+        {isNov
+          ? <Card title="November so far: sales against target pace"><CumulativeSales data={daily} /></Card>
+          : <Card title={`Achievement by salesman · ${MONTHS[mi]}`}><Achievement data={bySalesman} /></Card>}
+        <Card title="Monthly net sales against target (Jan–Oct)"><MonthlyTrend data={trend} /></Card>
       </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        {isNov && <Card title="Achievement by salesman · November to date"><Achievement data={bySalesman} /></Card>}
+        <Card title="Sales mix by channel · this year" right={<span className="text-xs text-slate-500">Share of net sales</span>}><ChannelMix data={channelMix} /></Card>
+        {!isNov && <Card title="What customers owe, by how late"><AgingProfile buckets={agingTotals} /></Card>}
+      </div>
+      {isNov && <Card title={`What customers owe, by how late${asAt ? ` · aging ${asAt.slice(8)}/${asAt.slice(5, 7)}` : ""}`} className="mt-5"><AgingProfile buckets={agingTotals} /></Card>}
 
       <div className="mt-5 grid gap-5 lg:grid-cols-3">
         <Card title={`Salesman performance · ${monthLabel}`} className="lg:col-span-2" right={<Link href="/sales" className="text-xs text-indigo-600 hover:underline">Sales & KPI →</Link>}>

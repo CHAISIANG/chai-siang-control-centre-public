@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { Barlow, Barlow_Condensed } from "next/font/google";
+import { IBM_Plex_Sans, IBM_Plex_Sans_Condensed } from "next/font/google";
 import "./globals.css";
 import Shell from "@/components/Shell";
 
-const body = Barlow({ variable: "--nf-body", subsets: ["latin"], weight: ["400", "500", "600"] });
-const display = Barlow_Condensed({ variable: "--nf-display", subsets: ["latin"], weight: ["500", "600", "700"] });
+// Plex Sans for reading, Plex Sans Condensed for big figures: a ledger-like, businesslike pair with even-width numbers.
+const body = IBM_Plex_Sans({ variable: "--nf-body", subsets: ["latin"], weight: ["400", "500", "600", "700"] });
+const display = IBM_Plex_Sans_Condensed({ variable: "--nf-display", subsets: ["latin"], weight: ["500", "600", "700"] });
 
 export const metadata: Metadata = {
   title: "Chai Siang Control Centre",

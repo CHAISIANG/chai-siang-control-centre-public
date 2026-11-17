@@ -16,7 +16,7 @@ export default function Sales() {
   const chart = list.map((s) => ({ name: s.name.split(" ")[0], "RL Acct": s.stats[mi].rl, "Active Acct": s.stats[mi].active }));
   return (
     <>
-      <PageHeader title="Sales & KPI" sub="Sales achievement against target, and customer coverage (RL Acct / Active Acct / ERC). From your coverage and net sales report, January to November (November is month to date; it has no target, so October's target is used pro-rata)."
+      <PageHeader title="Sales & KPI" sub="Sales achievement against target, and customer coverage (RL Acct / Active Acct / ERC). From your coverage and net sales report, January to November (November is month to date and is compared with its target to date)."
         right={<select className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm" value={mi} onChange={(e) => setMi(Number(e.target.value))} aria-label="Month">{MONTHS.map((m, i) => <option key={m} value={i}>{i === NOV ? "Nov (MTD)" : `${m} 2026`}</option>)}</select>} />
       <Card title={`KPI check · ${MONTHS[mi]}`} className="mb-4">
         <div className="overflow-x-auto">

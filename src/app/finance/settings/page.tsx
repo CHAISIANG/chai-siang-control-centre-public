@@ -22,7 +22,7 @@ export default function FinanceSettings() {
     setMsg(error ? { ok: false, text: error.message } : { ok: true, text: "Saved. New invoices use these details; existing invoices keep their own tax rate." });
     setBusy(false);
   }
-  if (!canManage) return <p className="rounded-xl border border-slate-200 bg-white p-6 text-slate-600">Your role can view finance but not change its settings.</p>;
+  if (!canManage) return <p className="rounded-xl border border-slate-200 bg-white shadow-sm p-6 text-slate-600">Your role can view finance but not change its settings.</p>;
   const ro = !canManage;
   return (
     <form onSubmit={save}>

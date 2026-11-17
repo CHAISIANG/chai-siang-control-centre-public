@@ -32,16 +32,20 @@
 
   --color-signal: #f5b800;
   --color-signal-soft: #fff4cc;
-  --color-concrete: #eef1f0;
+  --color-concrete: #f2f4f7;
+  /* side menu: deep depot navy */
+  --color-rail: #0f2232;
+  --color-rail-2: #16304a;
 
-  --radius-sm: 2px;
-  --radius-md: 3px;
-  --radius-lg: 4px;
-  --radius-xl: 6px;
-  --radius-2xl: 8px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
 
-  --shadow-sm: 0 0 0 0 transparent;
-  --shadow-md: 0 1px 0 0 rgb(21 28 34 / 0.04);
+  --shadow-xs: 0 1px 1px 0 rgb(16 30 44 / 0.04);
+  --shadow-sm: 0 1px 2px 0 rgb(16 30 44 / 0.06), 0 1px 1px 0 rgb(16 30 44 / 0.03);
+  --shadow-md: 0 4px 12px -2px rgb(16 30 44 / 0.08), 0 2px 4px -2px rgb(16 30 44 / 0.05);
 }
 
 @theme inline {
@@ -49,17 +53,24 @@
   --font-display: var(--nf-display), "Arial Narrow", ui-sans-serif, sans-serif;
 }
 
-html { font-size: 17px; }
+html { font-size: 16px; }
 
 /* Easier to tap and read: taller controls. */
-select, input[type="text"], input[type="search"], input:not([type]) { min-height: 42px; }
+select, input[type="text"], input[type="search"], input:not([type]) { min-height: 40px; }
 
 body {
   background: var(--color-concrete);
   color: var(--color-slate-800);
   font-family: var(--nf-body), ui-sans-serif, system-ui, sans-serif;
   font-feature-settings: "tnum" 1;
+  letter-spacing: -0.003em;
 }
+h1, h2, h3 { letter-spacing: -0.012em; }
+
+/* Tables: a quiet header band, light row lines, and a hover so the eye can follow a row. */
+table thead tr { background: var(--color-slate-50); }
+table tbody tr { transition: background-color 120ms; }
+table tbody tr:hover { background: color-mix(in srgb, var(--color-indigo-50) 45%, transparent); }
 
 
 /* Dark mode: the same tokens, reversed. The printed PAF form always stays white. */
@@ -67,6 +78,8 @@ html.dark {
   color-scheme: dark;
   --color-white: #19222a;
   --color-concrete: #0f161b;
+  --color-rail: #0b131a;
+  --color-rail-2: #15212b;
   --color-slate-50: #151d24;
   --color-slate-100: #1e2933;
   --color-slate-200: #2c3a45;
@@ -96,14 +109,10 @@ html.dark .recharts-tooltip-label, html.dark .recharts-tooltip-item { color: #e4
 /* Visible keyboard focus everywhere. */
 :focus-visible { outline: 2px solid var(--color-signal); outline-offset: 2px; }
 
-/* Road-marking progress bar: asphalt track, yellow fill, dashed centre line. */
-.road { position: relative; height: 14px; background: #151c22; border-radius: 2px; overflow: hidden; }
-.road::after {
-  content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 2px; transform: translateY(-50%);
-  background: repeating-linear-gradient(90deg, rgb(255 255 255 / 0.55) 0 8px, transparent 8px 16px);
-}
-.road > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--color-signal); z-index: 1; }
-.road > b { position: absolute; top: -3px; bottom: -3px; width: 3px; background: #fff; z-index: 2; }
+/* Progress bar: light track, depot-blue fill; the dark tick marks the target when sales go past it. */
+.road { position: relative; height: 8px; background: var(--color-slate-200); border-radius: 999px; overflow: hidden; }
+.road > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--color-indigo-600); border-radius: 999px; z-index: 1; }
+.road > b { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--color-slate-900); z-index: 2; }
 
 /* Lorry plate. */
 .plate {

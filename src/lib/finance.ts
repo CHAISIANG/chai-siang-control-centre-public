@@ -4,6 +4,7 @@ export type FinSettings = {
   company_name: string; company_address: string; company_phone: string; company_email: string; reg_no: string; sst_no: string;
   tax_rate: number; currency: string; payment_terms_days: number; bank_name: string; bank_account_no: string; bank_account_name: string;
   auto_reminders: boolean; reminder_hour: number;
+  company_name_cn: string; tin: string; company_mobile: string; late_interest: string; // e-invoice print
 };
 export type FinClient = { id: string; company_name: string; contact_person: string; email: string; phone: string; address: string; notes: string; language: "en" | "zh" };
 export type FinReminder = { id: number; invoice_id: string; channel: "email" | "whatsapp"; template: string | null; subject: string | null; status: "sent" | "failed"; error: string | null; auto: boolean; created_at: string };
@@ -22,6 +23,7 @@ export const DEFAULT_SETTINGS: FinSettings = {
   company_name: "Chai Siang Sdn Bhd", company_address: "", company_phone: "", company_email: "", reg_no: "", sst_no: "",
   tax_rate: 8, currency: "RM", payment_terms_days: 30, bank_name: "", bank_account_no: "", bank_account_name: "",
   auto_reminders: false, reminder_hour: 9,
+  company_name_cn: "", tin: "", company_mobile: "", late_interest: "1.5%",
 };
 
 /** Round to 2 decimals without floating-point drift (e.g. 1.005). */

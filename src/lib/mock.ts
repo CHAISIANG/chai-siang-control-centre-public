@@ -134,12 +134,12 @@ export type Driver = {
   failed: number;
 };
 const driverSeed: [string, string, string, number][] = [
-  ["Ramlee", "WXY 1288", "Rawang – Kuang", 34],
-  ["Kumar", "VCD 4471", "Batang Kali – KKB", 28],
-  ["Ah Chong", "BKP 902", "Selayang – Gombak", 41],
-  ["Zulkifli", "WB 7710", "Kajang – Semenyih", 31],
-  ["Hafiz", "PQR 3365", "Puchong – Klang", 37],
-  ["Lim Wei", "JKL 218", "Shah Alam – Subang", 26],
+  ["Driver A", "SMP 1001", "Rawang – Kuang", 34],
+  ["Driver B", "SMP 1002", "Batang Kali – KKB", 28],
+  ["Driver C", "SMP 1003", "Selayang – Gombak", 41],
+  ["Driver D", "SMP 1004", "Kajang – Semenyih", 31],
+  ["Driver E", "SMP 1005", "Puchong – Klang", 37],
+  ["Driver F", "SMP 1006", "Shah Alam – Subang", 26],
 ];
 export const drivers: Driver[] = driverSeed.map(([name, lorry, route, total]) => {
   const delivered = Math.round(total * between(0.45, 0.95));
@@ -157,14 +157,14 @@ export const pipeline: Stage[] = [
 ];
 
 const pendingSeed: [string, number, string, string, string][] = [
-  ["101S158492", 23, "Ah Chong", "Out for delivery", "Today"],
-  ["101S158487", 46, "Ramlee", "Out for delivery", "Today"],
-  ["101S158201", 69, "Kumar", "Customer closed – reschedule", "1 day"],
-  ["101S158044", 92, "Hafiz", "Out for delivery", "Today"],
-  ["101S157790", 115, "Zulkifli", "Short stock – partial", "2 days"],
-  ["101S157733", 138, "Lim Wei", "Waiting to load", "Today"],
-  ["101S157702", 161, "Ramlee", "Customer closed – reschedule", "1 day"],
-  ["101S157688", 184, "Ah Chong", "Waiting to load", "Today"],
+  ["900S158492", 23, "Driver C", "Out for delivery", "Today"],
+  ["900S158487", 46, "Driver A", "Out for delivery", "Today"],
+  ["900S158201", 69, "Driver B", "Customer closed – reschedule", "1 day"],
+  ["900S158044", 92, "Driver E", "Out for delivery", "Today"],
+  ["900S157790", 115, "Driver D", "Short stock – partial", "2 days"],
+  ["900S157733", 138, "Driver F", "Waiting to load", "Today"],
+  ["900S157702", 161, "Driver A", "Customer closed – reschedule", "1 day"],
+  ["900S157688", 184, "Driver C", "Waiting to load", "Today"],
 ];
 export const getPendingInvoices = (customers: Customer[]) =>
   pendingSeed.map(([inv, i, driver, status, age]) => ({ inv, customer: customers.length ? customers[i % customers.length].name : "—", driver, status, age }));

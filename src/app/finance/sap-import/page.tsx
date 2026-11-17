@@ -329,7 +329,7 @@ export default function SapImport() {
       <PageHeader
         title="SAP invoice import"
         sub="Upload the invoice export from Colgate SAP. The app sorts it, works out carton prices, splits carton and loose quantities, checks every total, and gives you the file to import."
-        right={result && data && <div className="flex flex-wrap gap-2"><button onClick={openPrint} disabled={!outRows.length || checking} className={`${btnGhost} inline-flex items-center gap-2`}><Printer size={18} /> Print invoices</button><button onClick={download} disabled={busy || checking || !outRows.length || (!data.sample && !canUse)} className={`${btnPrimary} inline-flex items-center gap-2`}><Download size={18} /> {isRecorded ? "Download again" : `Download import file (${outRows.length} lines)`}</button></div>}
+        right={result && data && <div className="flex flex-wrap gap-2"><button onClick={openPrint} disabled={!outRows.length || checking} className={`${btnGhost} inline-flex items-center gap-2`}><Printer size={18} /> Print invoices</button><button onClick={download} disabled={busy || checking || !outRows.length || (!data.sample && !canUse)} className={`${btnPrimary} inline-flex items-center gap-2`}><Download size={18} /> {isRecorded ? "Download again" : !outRows.length && priorDocs.length ? "Nothing new to download" : `Download import file (${outRows.length} lines)`}</button></div>}
       />
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
@@ -407,6 +407,7 @@ export default function SapImport() {
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               <p><b className="font-semibold">{plural(priorDocs.length, "invoice was", "invoices were")} imported before:</b> {priorDocs.slice(0, 6).map((d) => `${d} (${dateTxt(prior.get(d)!.at)})`).join(", ")}{priorDocs.length > 6 ? ` and ${priorDocs.length - 6} more` : ""}.</p>
               <label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={skipPrior} disabled={isRecorded} onChange={(e) => setSkipPrior(e.target.checked)} className="h-4 w-4" /> Leave them out of this file, so they are not imported twice</label>
+              {skipPrior && !outRows.length && <p className="mt-2 font-medium">Every invoice in this file was imported before, so there is nothing new to download. To make the file again anyway, untick the box above, or remove the earlier record in Import history below.</p>}
             </div>
           )}
 

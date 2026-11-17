@@ -24,6 +24,7 @@ const NAV: Nav[] = [
 const FIN_NAV: Nav[] = [
   { href: "/finance", label: "Overview", icon: Wallet, perm: "page_finance" },
   { href: "/finance/invoices", label: "Invoices", icon: Receipt, perm: "page_finance" },
+  { href: "/finance/sap-import", label: "SAP invoice import", icon: FileSpreadsheet, perm: "sap_import" },
   { href: "/finance/po", label: "PO & delivery", icon: ClipboardCheck, perm: "page_finance" },
   { href: "/finance/clients", label: "Clients", icon: Building2, perm: "page_finance" },
   { href: "/finance/ar", label: "Collections", icon: HandCoins, perm: "page_finance" },

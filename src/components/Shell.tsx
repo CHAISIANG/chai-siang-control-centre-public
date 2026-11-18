@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall, Home, Clock, CalendarPlus, History, CalendarDays, CheckSquare, UsersRound, IdCard, CalendarHeart, BarChart3, SlidersHorizontal } from "lucide-react";
+import { LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall, Home, Clock, CalendarPlus, History, CalendarDays, CheckSquare, UsersRound, IdCard, CalendarHeart, BarChart3, SlidersHorizontal, ReceiptText, ClipboardCheck as ClaimCheck, Banknote, PieChart, Settings2 } from "lucide-react";
 import { RoleProvider, useRole } from "./role";
 import { AuthProvider, useAuth } from "./auth";
 import { DataProvider, useData } from "./data";
@@ -37,12 +37,17 @@ const HR_NAV: Nav[] = [
   { href: "/hr/leave/apply", label: "Apply leave", icon: CalendarPlus, perm: "hr_self", group: "My HR" },
   { href: "/hr/leave", label: "My leave", icon: History, perm: "hr_self", group: "My HR" },
   { href: "/hr/calendar", label: "Team leave calendar", icon: CalendarDays, perm: "hr_self", group: "My HR" },
+  { href: "/hr/claims", label: "Expense claims", icon: ReceiptText, perm: "hr_self", group: "My HR" },
   { href: "/hr/approvals", label: "Leave approvals", icon: CheckSquare, perm: "hr_approve", group: "HR management" },
   { href: "/hr/team", label: "Team overview", icon: UsersRound, perm: "hr_approve", group: "HR management" },
   { href: "/hr/admin/employees", label: "Employees", icon: IdCard, perm: "hr_admin", group: "HR management" },
   { href: "/hr/admin/holidays", label: "Public holidays", icon: CalendarHeart, perm: "hr_admin", group: "HR management" },
   { href: "/hr/admin/reports", label: "HR reports", icon: BarChart3, perm: "hr_admin", group: "HR management" },
   { href: "/hr/admin/settings", label: "HR settings", icon: SlidersHorizontal, perm: "hr_admin", group: "HR management" },
+  { href: "/hr/claims/approvals", label: "Claim approvals", icon: ClaimCheck, perm: "hr_approve|exp_finance|exp_director", group: "HR management" },
+  { href: "/hr/claims/payments", label: "Claim payments", icon: Banknote, perm: "exp_finance", group: "HR management" },
+  { href: "/hr/claims/reports", label: "Claim reports", icon: PieChart, perm: "exp_reports", group: "HR management" },
+  { href: "/hr/claims/settings", label: "Claim settings", icon: Settings2, perm: "exp_admin", group: "HR management" },
 ];
 // Admin pages follow the person's own permission, never a preview.
 const ADMIN_NAV: Nav[] = [
@@ -74,8 +79,9 @@ function Inner({ children }: { children: ReactNode }) {
     { href: "/account", label: "My account", icon: KeyRound, perm: "" },
   ];
   const finItems = FIN_NAV.filter((n) => can(n.perm));
-  const hrItems = HR_NAV.filter((n) => can(n.perm));
-  const isActive = (href: string) => (href === "/" ? pathname === "/" : href === "/finance" || href === "/hr" || href === "/hr/leave" ? pathname === href : pathname.startsWith(href));
+  // a menu item may name several permissions ("a|b"): any one of them shows it
+  const hrItems = HR_NAV.filter((n) => n.perm.split("|").some((p) => can(p)));
+  const isActive = (href: string) => (href === "/" ? pathname === "/" : href === "/finance" || href === "/hr" || href === "/hr/leave" || href === "/hr/claims" ? pathname === href || (href === "/hr/claims" && (pathname === "/hr/claims/new" || /^\/hr\/claims\/c\w+$/.test(pathname))) : pathname.startsWith(href));
   const link = (n: Nav) => {
     const active = isActive(n.href);
     return (

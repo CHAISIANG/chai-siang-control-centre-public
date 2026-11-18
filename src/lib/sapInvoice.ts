@@ -218,3 +218,25 @@ export function parsePackList(rows: unknown[][]): { code: string; desc: string }
   }
   return [...seen].map(([code, desc]) => ({ code, desc }));
 }
+
+/** One line of the import file, whether it comes from a fresh conversion or from the history. */
+export type FileRow = Pick<ImportRow, "code" | "customerName" | "agent" | "docNo" | "docDate" | "docRef" | "itemCode" | "qty" | "uom" | "unitPrice" | "amount" | "discount" | "suomQty">;
+
+/** Amount of a line: cartons at the carton price, or loose units as a share of a carton, less the discount. */
+export function lineAmount(qty: number, uom: string, unitPrice: number, perCarton: number, discount: number): number {
+  const cartons = uom === "Ctn" || !perCarton ? qty : qty / perCarton;
+  return r2(cartons * unitPrice - discount);
+}
+
+/** Write the import file (sheet IMPORT, same 13 columns the accounting system takes) and save it. */
+export async function writeImportFile(rows: FileRow[], fileName: string) {
+  const { default: writeExcelFile } = await import("write-excel-file/browser");
+  const head = (t: string) => ({ value: t, fontWeight: "bold" as const });
+  const data = rows.map((r) => [
+    { value: r.code }, { value: r.customerName }, { value: r.agent }, { value: r.docNo },
+    r.docDate ? { value: r.docDate, format: "dd/mm/yyyy" } : { value: "" },
+    { value: r.docRef }, { value: r.itemCode }, { value: r.qty }, { value: r.uom },
+    { value: r.unitPrice }, { value: r.amount }, { value: r.discount ? r.discount.toFixed(2) : "" }, { value: r.suomQty },
+  ]);
+  await writeExcelFile([{ sheet: "IMPORT", columns: [14, 36, 14, 14, 12, 18, 12, 10, 8, 12, 12, 10, 10].map((width) => ({ width })), data: [IMPORT_HEADERS.map(head), ...data] }]).toFile(fileName);
+}

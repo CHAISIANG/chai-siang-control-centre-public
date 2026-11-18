@@ -122,18 +122,10 @@ html.dark .recharts-tooltip-label, html.dark .recharts-tooltip-item { color: #e4
 
 /* Printing a PAF claim: A4 portrait, narrow margins (6.35 mm), the whole form on one page, then the photos/remark on page 2. */
 @page { size: A4 portrait; margin: 6.35mm; }
-/* E-invoice: printed on the whole A4 sheet, like the accounting system's own print. */
-@page einv { size: A4 portrait; margin: 0; }
-/* side by side with the template: pages shrink on screen only */
-.einv-zoom { zoom: 0.72; }
-
 @media print {
   body * { visibility: hidden; }
-  #paf-print, #paf-print *, #inv-print, #inv-print *, #po-sheet, #po-sheet *, #einv-print, #einv-print * { visibility: visible; }
+  #paf-print, #paf-print *, #inv-print, #inv-print *, #po-sheet, #po-sheet * { visibility: visible; }
   #paf-print, #inv-print, #po-sheet { position: absolute; left: 0; top: 0; width: 100%; }
-  #einv-print { position: absolute; left: 0; top: 0; display: block !important; padding: 0 !important; zoom: 1 !important; }
-  #einv-print .einv-page { page: einv; break-after: page; box-shadow: none !important; }
-  #einv-print .einv-page:last-child { break-after: auto; }
   .inv-navy, #paf-print, #paf-print * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .paf-modal-root { position: static !important; overflow: visible !important; background: none !important; padding: 0 !important; }
   .no-print { display: none !important; }

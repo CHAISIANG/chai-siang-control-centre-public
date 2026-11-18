@@ -1,15 +1,12 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Columns2, Download, FileCheck2, FileUp, PackageOpen, Printer, Search, Trash2, Users, X } from "lucide-react";
-import Link from "next/link";
+import { Download, Eye, FileUp, PackageOpen, Search, Trash2 } from "lucide-react";
 import { Badge, Card, Kpi, KpiStrip, PageHeader, Td, Th } from "@/components/ui";
 import { btnGhost, btnPrimary } from "@/components/finui";
 import { useRole } from "@/components/role";
 import { supabase } from "@/lib/supabase";
-import { EInvoiceSheet } from "@/components/EInvoiceSheet";
-import { useFinance } from "@/components/finance";
-import { companyFrom, companyGaps, CUSTOMER_HEADERS, invoicesFrom, parseCustomerSheet, parseValidationSheet, partiesFrom, qrTarget, termsFrom, VALIDATION_HEADERS, type Company, type EinvCustomer, type EinvValidation, type Party } from "@/lib/einvoice";
-import { convert, IMPORT_HEADERS, parsePackList, parseSap, reconcile, type ImportRow, type Issue, type SapLine } from "@/lib/sapInvoice";
+import { convert, parsePackList, parseSap, reconcile, writeImportFile, type ImportRow, type Issue, type SapLine } from "@/lib/sapInvoice";
+import { BatchView, type Batch } from "./BatchView";
 
 const rm = (n: number) => n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const ymd = (d: Date | null) => (d ? `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}` : "");
@@ -28,12 +25,7 @@ const SAMPLE: unknown[][] = [
   ["SAMPLE-C02", "Sample Pharmacy", "SAMPLE-S02", "900S000101", "17.11.2026", "900S000101", 90000020, "Dish Liquid Lime 900ml", 12, 5, "CS", 0, null, 540, 486, -54],
   ["SAMPLE-C02", "Sample Pharmacy", "SAMPLE-S02", "900S000101", "17.11.2026", "900S000101", 90000012, "Toothpaste Fresh 175g", 72, 0, null, 24, "EA", 194.67, 194.67, 0],
   ["SAMPLE-C02", "Sample Pharmacy", "SAMPLE-S02", "900S000101", "17.11.2026", "900S000101", 90000099, "Floor Cleaner Floral 2L", 0, 4, "CS", 0, null, 320, 320, 0],
-  // a longer invoice, to show how lines carry over to the next page
-  ...Array.from({ length: 20 }, (_, i) => ["SAMPLE-C03", "Sample Cash & Carry Sdn Bhd", "SAMPLE-S01", "900S000103", "17.11.2026", "PO-77310", 90001000 + i, `Sample Product ${String.fromCharCode(65 + (i % 26))} ${[1, 1.5, 2, 3][i % 4]}L`, [6, 4, 12, 8][i % 4], 1 + (i % 3), "CS", 0, null, 88.8 * (1 + (i % 3)), 88.8 * (1 + (i % 3)) - (i % 2 ? 0 : 5.76), i % 2 ? 0 : -5.76]),
 ];
-// Placeholder company details for the sample. The real ones are kept in Finance settings, not in the code.
-const SAMPLE_COMPANY: Company = { nameCn: "財祥號有限公司", name: "CHAI SIANG SDN BHD", regNo: "000000000000 (000000-X)", tin: "C00000000000", address: "Company address from Finance settings", tel: "00 0000 0000", mobile: "000 000 0000", email: "company@example.com", bankName: "BANK NAME", bankAccountNo: "000000000000", interestPct: "1.5%" };
-const sampleParty = (name: string): Party => ({ name: name.toUpperCase(), brn: "200000000000", tin: "C00000000000", address: ["NO. 1, JALAN CONTOH 1,", "TAMAN CONTOH,", "47000 SUNGAI BULOH, SELANGOR"], email: "accounts@example.com", tel: "03-0000 0000" });
 // What the sample would look like with history: one invoice already imported, one price changed.
 const SAMPLE_PACKS = ["90000044"];
 const SAMPLE_PRIOR = new Map([["900S000101", { at: "2026-11-16T09:30:00Z", file: "Sample earlier file.xlsx" }]]);
@@ -42,7 +34,6 @@ const SAMPLE_LAST = new Map([["90000031", { price: 198, doc: "900S000088", date:
 type Loaded = { name: string; lines: SapLine[]; sample: boolean };
 type Prior = Map<string, { at: string; file: string }>;
 type Last = Map<string, { price: number; doc: string; date: string | null }>;
-type Batch = { id: number; file_name: string; made_at: string; made_by_name: string | null; invoices: number; lines: number; net_total: number; doc_from: string | null; doc_to: string | null };
 
 export default function SapImport() {
   const { can } = useRole();
@@ -60,20 +51,7 @@ export default function SapImport() {
   const [checks, setChecks] = useState<{ for: Loaded; prior: Prior; last: Last } | null>(null);
   const [recorded, setRecorded] = useState<{ for: Loaded; id: number } | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
-  const [printing, setPrinting] = useState(false);
-  const [qr, setQr] = useState<Map<string, string>>(new Map());
-  // The template to compare against: a file on this computer, shown only on screen and never uploaded.
-  const [ref, setRef] = useState<{ url: string; name: string; pdf: boolean } | null>(null);
-  const refInput = useRef<HTMLInputElement>(null);
-  function pickRef(f: File | undefined) {
-    if (!f) return;
-    if (ref) URL.revokeObjectURL(ref.url);
-    setRef({ url: URL.createObjectURL(f), name: f.name, pdf: f.type === "application/pdf" || /\.pdf$/i.test(f.name) });
-  }
-  const [einv, setEinv] = useState<{ for: Loaded; cust: Map<string, EinvCustomer>; terms: Map<string, string>; valid: Map<string, EinvValidation> } | null>(null);
-  const custRef = useRef<HTMLInputElement>(null);
-  const validRef = useRef<HTMLInputElement>(null);
-  const { settings } = useFinance();
+  const [viewing, setViewing] = useState<Batch | null>(null);
 
   const loadSaved = useCallback(async () => {
     const [p, b] = await Promise.all([
@@ -108,28 +86,6 @@ export default function SapImport() {
     })();
     return () => { live = false; };
   }, [data]);
-
-  // E-invoice details for the customers and invoices in this file.
-  const loadEinv = useCallback(async (d: Loaded) => {
-    const codes = [...new Set(d.lines.map((l) => l.customer))];
-    const docs = [...new Set(d.lines.map((l) => l.docNo))];
-    const [c, t, v] = await Promise.all([
-      supabase.from("einv_customers").select("*").in("cust_code", codes),
-      supabase.from("customers").select("code, payment_term").in("code", codes),
-      supabase.from("einv_validations").select("doc_no, uuid, long_id, qr_link, validated_at").in("doc_no", docs),
-    ]);
-    setEinv({
-      for: d,
-      cust: new Map(((c.data ?? []) as EinvCustomer[]).map((r) => [r.cust_code, r])),
-      terms: new Map(((t.data ?? []) as { code: string; payment_term: string | null }[]).map((r) => [r.code, termsFrom(r.payment_term)])),
-      valid: new Map(((v.data ?? []) as EinvValidation[]).map((r) => [r.doc_no, r])),
-    });
-  }, []);
-  useEffect(() => {
-    if (!data || data.sample) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- async load, state is set after the await
-    void loadEinv(data);
-  }, [data, loadEinv]);
 
   const packs = data?.sample ? SAMPLE_PACKS : savedPacks;
   const packSet = useMemo(() => new Set(packs), [packs]);
@@ -210,23 +166,17 @@ export default function SapImport() {
     if (!data.sample && !isRecorded) {
       const { data: id, error } = await supabase.rpc("sap_import_record", {
         p_file: data.name,
-        p_lines: outRows.map((r) => ({ doc_no: r.docNo, doc_date: iso(r.docDate), customer: r.code, item_code: String(r.itemCode), uom: r.uom, qty: r.qty, unit_price: r.unitPrice, amount: r.amount, discount: r.discount })),
+        p_lines: outRows.map((r) => ({
+          doc_no: r.docNo, doc_date: iso(r.docDate), customer: r.code, customer_name: r.customerName, agent: r.agent, doc_ref: r.docRef,
+          item_code: String(r.itemCode), description: r.desc, uom: r.uom, qty: r.qty, unit_price: r.unitPrice, amount: r.amount, discount: r.discount, suom_qty: r.suomQty, split: r.split,
+        })),
       });
       if (error) { setMsg({ ok: false, text: `Nothing was downloaded: the import could not be recorded. ${error.message}` }); setBusy(false); return; }
       setRecorded({ for: data, id: id as number });
       void loadSaved();
     }
-    const { default: writeExcelFile } = await import("write-excel-file/browser");
-    const head = (t: string) => ({ value: t, fontWeight: "bold" as const });
-    const rows = outRows.map((r) => [
-      { value: r.code }, { value: r.customerName }, { value: r.agent }, { value: r.docNo },
-      r.docDate ? { value: r.docDate, format: "dd/mm/yyyy" } : { value: "" },
-      { value: r.docRef }, { value: r.itemCode }, { value: r.qty }, { value: r.uom },
-      { value: r.unitPrice }, { value: r.amount }, { value: r.discount ? r.discount.toFixed(2) : "" }, { value: r.suomQty },
-    ]);
     const first = outRows.find((r) => r.docDate)?.docDate ?? null;
-    await writeExcelFile([{ sheet: "IMPORT", columns: [14, 36, 14, 14, 12, 18, 12, 10, 8, 12, 12, 10, 10].map((width) => ({ width })), data: [IMPORT_HEADERS.map(head), ...rows] }])
-      .toFile(`Invoice import ${ymd(first) || "SAP"}.xlsx`);
+    await writeImportFile(outRows, `Invoice import ${ymd(first) || "SAP"}.xlsx`);
     setBusy(false);
   }
 
@@ -234,84 +184,8 @@ export default function SapImport() {
     if (!confirm(`Remove the record of "${b.file_name}" (${plural(b.invoices, "invoice", "invoices")})?\n\nThose invoices will no longer be flagged as already imported. Nothing in your accounting system changes.`)) return;
     const { error } = await supabase.from("sap_import_batches").delete().eq("id", b.id);
     setMsg(error ? { ok: false, text: `Not removed. ${error.message}` } : { ok: true, text: `Record of "${b.file_name}" removed.` });
+    if (!error && viewing?.id === b.id) setViewing(null);
     void loadSaved();
-  }
-
-  const company: Company = data?.sample ? SAMPLE_COMPANY : companyFrom(settings);
-  const gaps = data?.sample ? [] : companyGaps(company);
-  const ein = einv?.for === data ? einv : null;
-  const custCodes = [...new Set(outRows.map((r) => r.code))];
-  const outDocs = [...new Set(outRows.map((r) => r.docNo))];
-  const custMissing = data?.sample ? [] : custCodes.filter((c) => !ein?.cust.get(c)?.bill_address);
-  const notValidated = data?.sample ? outDocs : outDocs.filter((d) => !ein?.valid.has(d));
-  const invoices = printing ? invoicesFrom(outRows, (code, name) => {
-    if (data?.sample) { const p = sampleParty(name); return { bill: p, ship: p, terms: "14" }; }
-    const c = ein?.cust.get(code);
-    return { ...partiesFrom(name, c), terms: c?.terms || ein?.terms.get(code) || "" };
-  }).map((d) => {
-    const v = ein?.valid.get(d.no);
-    return v ? { ...d, einv: { uuid: v.uuid, validatedAt: v.validated_at ?? "", qrUrl: qr.get(d.no) ?? "" } } : d;
-  }) : [];
-
-  async function openPrint() {
-    // QR codes are drawn here, in the browser, from each invoice's MyInvois link.
-    const { toDataURL } = await import("qrcode");
-    const m = new Map<string, string>();
-    for (const d of outDocs) {
-      const v = ein?.valid.get(d), target = v ? qrTarget(v) : "";
-      if (target) m.set(d, await toDataURL(target, { margin: 0, width: 240, errorCorrectionLevel: "M" }));
-    }
-    setQr(m);
-    setPrinting(true);
-  }
-
-  async function customerTemplate() {
-    if (!data) return;
-    const { default: writeExcelFile } = await import("write-excel-file/browser");
-    const head = (t: string) => ({ value: t, fontWeight: "bold" as const, backgroundColor: "#fff3bf" });
-    const names = new Map(data.lines.map((l) => [l.customer, l.customerName]));
-    const rows = [...names].map(([code, name]) => {
-      const c = ein?.cust.get(code);
-      const b = (c?.bill_address ?? "").split("\n"), sh = (c?.ship_address ?? "").split("\n");
-      return [code, name, c?.bill_name ?? "", c?.brn ?? "", c?.tin ?? "", b[0] ?? "", b[1] ?? "", b[2] ?? "", b[3] ?? "", sh[0] ?? "", sh[1] ?? "", sh[2] ?? "", sh[3] ?? "", c?.email ?? "", c?.tel ?? "", c?.terms ?? ""].map((value) => ({ value }));
-    });
-    await writeExcelFile([{ sheet: "Customer details", columns: CUSTOMER_HEADERS.map((h, i) => ({ width: i === 1 ? 36 : h.includes("address") ? 34 : 16 })), data: [CUSTOMER_HEADERS.map(head), ...rows] }]).toFile("e-invoice customer details.xlsx");
-  }
-
-  async function validationTemplate() {
-    const { default: writeExcelFile } = await import("write-excel-file/browser");
-    const head = (t: string) => ({ value: t, fontWeight: "bold" as const, backgroundColor: "#fff3bf" });
-    const rows = outDocs.map((d) => { const v = ein?.valid.get(d); return [d, v?.uuid ?? "", v?.long_id ?? "", v?.qr_link ?? "", v?.validated_at ?? ""].map((value) => ({ value })); });
-    await writeExcelFile([{ sheet: "LHDN validation", columns: [{ width: 14 }, { width: 30 }, { width: 40 }, { width: 60 }, { width: 22 }], data: [VALIDATION_HEADERS.map(head), ...rows] }]).toFile("e-invoice validation.xlsx");
-  }
-
-  async function uploadEinv(kind: "cust" | "valid", f: File | undefined) {
-    if (!f || !data) return;
-    setBusy(true); setMsg(null);
-    try {
-      const sheets = await sheetsOf(f);
-      const parse = (rows: unknown[][]) => (kind === "cust" ? parseCustomerSheet(rows) : parseValidationSheet(rows));
-      const parsed = sheets.map((x) => parse(x.data)).find((x) => x.rows.length) ?? parse(sheets[0]?.data ?? []);
-      if (!parsed.rows.length) throw new Error(parsed.error || "No filled rows were found.");
-      let rows = parsed.rows as object[];
-      if (kind === "cust") {
-        // a blank cell keeps what is saved: start from the saved record and lay the filled cells on top
-        const codes = (parsed.rows as Partial<EinvCustomer>[]).map((r) => r.cust_code!);
-        const { data: saved } = await supabase.from("einv_customers").select("cust_code, bill_name, brn, tin, bill_address, ship_address, email, tel, terms").in("cust_code", codes);
-        const was = new Map(((saved ?? []) as EinvCustomer[]).map((r) => [r.cust_code, r]));
-        const empty = { bill_name: null, brn: null, tin: null, bill_address: null, ship_address: null, email: null, tel: null, terms: null };
-        rows = (parsed.rows as Partial<EinvCustomer>[]).map((r) => ({ ...empty, ...was.get(r.cust_code!), ...r }));
-      }
-      const { error } = kind === "cust"
-        ? await supabase.from("einv_customers").upsert(rows, { onConflict: "cust_code" })
-        : await supabase.from("einv_validations").upsert(rows, { onConflict: "doc_no" });
-      if (error) throw error;
-      await loadEinv(data);
-      setMsg({ ok: true, text: kind === "cust" ? `Saved details for ${plural(parsed.rows.length, "customer", "customers")}. Blank cells kept what was saved before.` : `Saved LHDN validation for ${plural(parsed.rows.length, "invoice", "invoices")}.` });
-    } catch (e) {
-      setMsg({ ok: false, text: `Nothing was saved. ${(e as { message?: string })?.message ?? ""}` });
-    }
-    setBusy(false);
   }
 
   const errors = result?.issues.filter((i) => i.level === "error") ?? [];
@@ -329,7 +203,7 @@ export default function SapImport() {
       <PageHeader
         title="SAP invoice import"
         sub="Upload the invoice export from Colgate SAP. The app sorts it, works out carton prices, splits carton and loose quantities, checks every total, and gives you the file to import."
-        right={result && data && <div className="flex flex-wrap gap-2"><button onClick={openPrint} disabled={!outRows.length || checking} className={`${btnGhost} inline-flex items-center gap-2`}><Printer size={18} /> Print invoices</button><button onClick={download} disabled={busy || checking || !outRows.length || (!data.sample && !canUse)} className={`${btnPrimary} inline-flex items-center gap-2`}><Download size={18} /> {isRecorded ? "Download again" : !outRows.length && priorDocs.length ? "Nothing new to download" : `Download import file (${outRows.length} lines)`}</button></div>}
+        right={result && data && <div className="flex flex-wrap gap-2"><button onClick={download} disabled={busy || checking || !outRows.length || (!data.sample && !canUse)} className={`${btnPrimary} inline-flex items-center gap-2`}><Download size={18} /> {isRecorded ? "Download again" : !outRows.length && priorDocs.length ? "Nothing new to download" : `Download import file (${outRows.length} lines)`}</button></div>}
       />
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
@@ -355,36 +229,6 @@ export default function SapImport() {
       </div>
 
       {msg && <div className={`mt-4 rounded-md px-4 py-3 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>{msg.text}</div>}
-
-      {result && data && !data.sample && (
-        <Card className="mt-4" title="E-invoice print details">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div>
-              <p className="text-sm font-medium text-slate-800">Company details</p>
-              <p className="mt-1 text-sm text-slate-600">{gaps.length ? <>Missing: {gaps.join(", ")}.</> : "Complete."}</p>
-              <Link href="/finance/settings" className="mt-2 inline-block text-sm font-medium text-indigo-700 hover:underline">Edit in Finance settings</Link>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-slate-800">Customer BRN, TIN and addresses</p>
-              <p className="mt-1 text-sm text-slate-600">{custMissing.length ? `${custMissing.length} of ${custCodes.length} customers in this file have no address yet.` : `All ${custCodes.length} customers in this file are complete.`}</p>
-              {canUse && <div className="mt-2 flex flex-wrap items-center gap-3">
-                <button onClick={customerTemplate} className="text-sm font-medium text-indigo-700 hover:underline">Download template</button>
-                <button onClick={() => custRef.current?.click()} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"><Users size={16} /> Upload</button>
-              </div>}
-              <input ref={custRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => { uploadEinv("cust", e.target.files?.[0]); e.target.value = ""; }} />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-slate-800">LHDN validation (QR and UUID)</p>
-              <p className="mt-1 text-sm text-slate-600">{notValidated.length ? `${notValidated.length} of ${outDocs.length} invoices have no UUID yet; their QR area prints blank.` : `All ${outDocs.length} invoices are validated.`}</p>
-              {canUse && <div className="mt-2 flex flex-wrap items-center gap-3">
-                <button onClick={validationTemplate} className="text-sm font-medium text-indigo-700 hover:underline">Download template</button>
-                <button onClick={() => validRef.current?.click()} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"><FileCheck2 size={16} /> Upload</button>
-              </div>}
-              <input ref={validRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => { uploadEinv("valid", e.target.files?.[0]); e.target.value = ""; }} />
-            </div>
-          </div>
-        </Card>
-      )}
 
       {!result && !msg && (
         <Card className="mt-4">
@@ -488,7 +332,7 @@ export default function SapImport() {
               <thead className="border-b border-slate-200"><tr><Th first>Made</Th><Th>SAP file</Th><Th>By</Th><Th>Invoice dates</Th><Th right>Invoices</Th><Th right>Lines</Th><Th right>Net (RM)</Th><Th /></tr></thead>
               <tbody>
                 {batches.map((b) => (
-                  <tr key={b.id} className="border-b border-slate-100">
+                  <tr key={b.id} className={`border-b border-slate-100 ${viewing?.id === b.id ? "bg-indigo-50/60" : ""}`}>
                     <Td first className="whitespace-nowrap">{new Date(b.made_at).toLocaleString("en-MY", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</Td>
                     <Td>{b.file_name}</Td>
                     <Td>{b.made_by_name || "–"}</Td>
@@ -496,7 +340,7 @@ export default function SapImport() {
                     <Td right>{b.invoices}</Td>
                     <Td right>{b.lines}</Td>
                     <Td right>{rm(Number(b.net_total))}</Td>
-                    <Td right>{canUse && <button onClick={() => removeBatch(b)} title="Remove this record" className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-700"><Trash2 size={16} /></button>}</Td>
+                    <Td right><div className="flex justify-end gap-1"><button onClick={() => setViewing(viewing?.id === b.id ? null : b)} className={`inline-flex items-center gap-1 rounded px-2 py-1 text-sm font-medium ${viewing?.id === b.id ? "bg-indigo-600 text-white" : "text-indigo-700 hover:bg-indigo-50"}`}><Eye size={16} /> View</button>{canUse && <button onClick={() => removeBatch(b)} title="Remove this record" className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-700"><Trash2 size={16} /></button>}</div></Td>
                   </tr>
                 ))}
               </tbody>
@@ -504,38 +348,7 @@ export default function SapImport() {
           </div>
         </Card>
       )}
-      {printing && (
-        <div className="paf-modal-root fixed inset-0 z-50 overflow-auto bg-slate-500">
-          <div className="no-print sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-3">
-            <b className="font-semibold text-slate-800">{plural(invoices.length, "invoice", "invoices")} · A4</b>
-            {data?.sample ? <span className="text-sm text-amber-700">Sample: company and customer details are placeholders</span>
-              : (gaps.length > 0 || custMissing.length > 0 || notValidated.length > 0) && <span className="text-sm text-amber-700">{[gaps.length ? "company details incomplete" : "", custMissing.length ? `${plural(custMissing.length, "customer", "customers")} without address` : "", notValidated.length ? `${plural(notValidated.length, "invoice", "invoices")} without LHDN UUID` : ""].filter(Boolean).join(" · ")}</span>}
-            <span className="flex-1" />
-            {ref
-              ? <span className="inline-flex items-center gap-2 text-sm text-slate-600">Comparing with <b className="max-w-48 truncate font-medium text-slate-800">{ref.name}</b><button onClick={() => { URL.revokeObjectURL(ref.url); setRef(null); }} className="font-medium text-indigo-700 hover:underline">Hide</button></span>
-              : <button onClick={() => refInput.current?.click()} className={`${btnGhost} inline-flex items-center gap-2`}><Columns2 size={18} /> Compare with template</button>}
-            <input ref={refInput} type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => { pickRef(e.target.files?.[0]); e.target.value = ""; }} />
-            <button onClick={() => window.print()} className={`${btnPrimary} inline-flex items-center gap-2`}><Printer size={18} /> Print / PDF</button>
-            <button onClick={() => setPrinting(false)} className={`${btnGhost} inline-flex items-center gap-2`}><X size={18} /> Close</button>
-          </div>
-          <div className={ref ? "flex items-start justify-center gap-6 px-4" : ""}>
-            <div className={ref ? "shrink-0" : ""}>
-              {ref && <p className="no-print pt-4 text-center text-sm font-medium text-white">This invoice (what prints)</p>}
-              <div id="einv-print" className={`flex flex-col items-center gap-6 py-6 ${ref ? "einv-zoom" : ""}`}>
-                {invoices.map((d) => <EInvoiceSheet key={d.no} company={company} doc={d} />)}
-              </div>
-            </div>
-            {ref && (
-              <div className="no-print sticky top-[72px] flex h-[calc(100vh-88px)] w-[151.2mm] shrink-0 flex-col pt-4">
-                <p className="pb-2 text-center text-sm font-medium text-white">Your template (not printed)</p>
-                {ref.pdf
-                  ? <iframe src={`${ref.url}#view=FitH`} title="Template" className="w-full flex-1 rounded bg-white" />
-                  : <div className="flex-1 overflow-auto rounded bg-white"><img src={ref.url} alt="Template" className="w-full" /></div>}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {viewing && <BatchView key={viewing.id} batch={viewing} canEdit={canUse} onClose={() => setViewing(null)} onChanged={() => void loadSaved()} />}
     </>
   );
 }

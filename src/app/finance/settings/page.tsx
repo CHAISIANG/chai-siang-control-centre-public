@@ -31,16 +31,12 @@ export default function FinanceSettings() {
         <Card title="Company">
           <div className="space-y-3">
             <Field label="Company name"><input className={inputCls} value={f.company_name} onChange={txt("company_name")} disabled={ro} required /></Field>
-            <Field label="Company name in Chinese (e-invoice)"><input className={inputCls} value={f.company_name_cn} onChange={txt("company_name_cn")} /></Field>
             <Field label="Address"><textarea rows={3} className={inputCls} value={f.company_address} onChange={txt("company_address")} /></Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Phone"><input className={inputCls} value={f.company_phone} onChange={txt("company_phone")} /></Field>
               <Field label="Email"><input type="email" className={inputCls} value={f.company_email} onChange={txt("company_email")} /></Field>
               <Field label="Company reg. no."><input className={inputCls} value={f.reg_no} onChange={txt("reg_no")} /></Field>
               <Field label="SST registration no."><input className={inputCls} value={f.sst_no} onChange={txt("sst_no")} /></Field>
-              <Field label="TIN (e-invoice)"><input className={inputCls} value={f.tin} onChange={txt("tin")} /></Field>
-              <Field label="Mobile (e-invoice)"><input className={inputCls} value={f.company_mobile} onChange={txt("company_mobile")} /></Field>
-              <Field label="Late interest per month (e-invoice)"><input className={inputCls} value={f.late_interest} onChange={txt("late_interest")} placeholder="1.5%" /></Field>
             </div>
           </div>
         </Card>

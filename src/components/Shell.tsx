@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall } from "lucide-react";
+import { LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall, Home, Clock, CalendarPlus, History, CalendarDays, CheckSquare, UsersRound, IdCard, CalendarHeart, BarChart3, SlidersHorizontal } from "lucide-react";
 import { RoleProvider, useRole } from "./role";
 import { AuthProvider, useAuth } from "./auth";
 import { DataProvider, useData } from "./data";
@@ -29,6 +29,20 @@ const FIN_NAV: Nav[] = [
   { href: "/finance/clients", label: "Clients", icon: Building2, perm: "page_finance" },
   { href: "/finance/ar", label: "Collections", icon: HandCoins, perm: "page_finance" },
   { href: "/finance/settings", label: "Settings", icon: Settings, perm: "finance_manage" },
+];
+// HR: leave and attendance. Everyone with a login uses "My HR"; managers and HR get the rest.
+const HR_NAV: Nav[] = [
+  { href: "/hr", label: "My HR", icon: Home, perm: "hr_self", group: "My HR" },
+  { href: "/hr/clock", label: "Clock in / out", icon: Clock, perm: "hr_self", group: "My HR" },
+  { href: "/hr/leave/apply", label: "Apply leave", icon: CalendarPlus, perm: "hr_self", group: "My HR" },
+  { href: "/hr/leave", label: "My leave", icon: History, perm: "hr_self", group: "My HR" },
+  { href: "/hr/calendar", label: "Team leave calendar", icon: CalendarDays, perm: "hr_self", group: "My HR" },
+  { href: "/hr/approvals", label: "Leave approvals", icon: CheckSquare, perm: "hr_approve", group: "HR management" },
+  { href: "/hr/team", label: "Team overview", icon: UsersRound, perm: "hr_approve", group: "HR management" },
+  { href: "/hr/admin/employees", label: "Employees", icon: IdCard, perm: "hr_admin", group: "HR management" },
+  { href: "/hr/admin/holidays", label: "Public holidays", icon: CalendarHeart, perm: "hr_admin", group: "HR management" },
+  { href: "/hr/admin/reports", label: "HR reports", icon: BarChart3, perm: "hr_admin", group: "HR management" },
+  { href: "/hr/admin/settings", label: "HR settings", icon: SlidersHorizontal, perm: "hr_admin", group: "HR management" },
 ];
 // Admin pages follow the person's own permission, never a preview.
 const ADMIN_NAV: Nav[] = [
@@ -60,7 +74,8 @@ function Inner({ children }: { children: ReactNode }) {
     { href: "/account", label: "My account", icon: KeyRound, perm: "" },
   ];
   const finItems = FIN_NAV.filter((n) => can(n.perm));
-  const isActive = (href: string) => (href === "/" ? pathname === "/" : href === "/finance" ? pathname === "/finance" : pathname.startsWith(href));
+  const hrItems = HR_NAV.filter((n) => can(n.perm));
+  const isActive = (href: string) => (href === "/" ? pathname === "/" : href === "/finance" || href === "/hr" || href === "/hr/leave" ? pathname === href : pathname.startsWith(href));
   const link = (n: Nav) => {
     const active = isActive(n.href);
     return (
@@ -79,7 +94,7 @@ function Inner({ children }: { children: ReactNode }) {
   );
   const groups = ["Overview", "Sales", "Operations", "Data"];
   const mainItems = items.filter((n) => NAV.includes(n));
-  const current = [...NAV, ...FIN_NAV, ...ADMIN_NAV, { href: "/account", label: "My account", icon: KeyRound, perm: "" }].filter((n) => isActive(n.href)).sort((a, b) => b.href.length - a.href.length)[0];
+  const current = [...NAV, ...FIN_NAV, ...HR_NAV, ...ADMIN_NAV, { href: "/account", label: "My account", icon: KeyRound, perm: "" }].filter((n) => isActive(n.href)).sort((a, b) => b.href.length - a.href.length)[0];
   const initials = (profile?.full_name ?? "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
   const asAtText = asAt ? new Date(asAt + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : null;
   const sel = "rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700";
@@ -102,6 +117,8 @@ function Inner({ children }: { children: ReactNode }) {
         <nav className="flex-1 overflow-y-auto py-3">
           {groups.map((g) => section(g, mainItems.filter((n) => n.group === g)))}
           {section("Finance", finItems)}
+          {section("My HR", hrItems.filter((n) => n.group === "My HR"))}
+          {section("HR management", hrItems.filter((n) => n.group === "HR management"))}
           {section("Admin", items.filter((n) => !NAV.includes(n)))}
         </nav>
         <div className="border-t border-white/10 px-5 py-3 text-xs text-white/45">Chai Siang Sdn Bhd</div>
@@ -156,7 +173,7 @@ function Splash({ children }: { children?: ReactNode }) {
 }
 
 function Gate({ children }: { children: ReactNode }) {
-  const { session, profile, loading, signOut } = useAuth();
+  const { session, profile, loading, signOut, realCan } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const onLogin = pathname === "/login";
@@ -166,9 +183,11 @@ function Gate({ children }: { children: ReactNode }) {
     if (session && profile?.role === "distributor") { router.replace("/portal"); return; }
     // Colgate (principal) only ever sees the Claims page and their own account.
     if (session && profile?.role === "principal" && pathname !== "/claims" && pathname !== "/account" && !onLogin) { router.replace("/claims"); return; }
+    // HR-only staff (no sales dashboard) start on their own HR page
+    if (session && pathname === "/" && !realCan("page_dashboard") && realCan("hr_self")) { router.replace("/hr"); return; }
     if (!session && !onLogin) router.replace("/login");
     if (session && onLogin) router.replace("/");
-  }, [loading, session, profile, onLogin, pathname, router]);
+  }, [loading, session, profile, onLogin, pathname, router, realCan]);
 
   // The distributor portal preview is a separate, sample-only experience with its own screens.
   if (onLogin || pathname.startsWith("/portal")) return <>{children}</>;

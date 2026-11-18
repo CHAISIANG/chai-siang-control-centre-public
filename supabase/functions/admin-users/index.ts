@@ -44,7 +44,9 @@ Deno.serve(async (req) => {
     if (!r) return { ok: false, needs: false };
     if (r.is_super) return { ok: true, needs: false };
     const { data: g } = await admin.from("role_permissions").select("allowed").eq("role", role).eq("permission", "view_all_data").maybeSingle();
-    return { ok: true, needs: !g?.allowed && role !== "pending" };
+    // only roles that see sales figures are tied to a salesman; HR-only roles (Staff, HR) are not
+    const { data: sales } = await admin.from("role_permissions").select("permission").eq("role", role).eq("allowed", true).in("permission", ["page_sales", "page_customers", "page_dashboard"]);
+    return { ok: true, needs: !g?.allowed && role !== "pending" && (sales ?? []).length > 0 };
   };
 
   // ---- list ----

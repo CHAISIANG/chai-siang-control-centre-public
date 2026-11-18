@@ -36,6 +36,14 @@ export function BatchView({ batch, canEdit, onClose, onChanged }: { batch: Batch
   }, [batch.id]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- async load, state is set after the await
   useEffect(() => { void load(); }, [load]);
+  // Esc closes the window (unless a line is being edited); the page behind does not scroll while it is open.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape" && !edit) onClose(); };
+    window.addEventListener("keydown", key);
+    const was = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", key); document.body.style.overflow = was; };
+  }, [edit, onClose]);
 
   // Files made before 18 Nov kept only the figures, not the customer name, agent, PO reference or carton size.
   const incomplete = !!lines?.some((l) => l.customer_name == null || l.suom_qty == null);
@@ -86,7 +94,9 @@ export function BatchView({ batch, canEdit, onClose, onChanged }: { batch: Batch
   }
 
   return (
-    <Card className="mt-4" title={`File: ${batch.file_name}`} right={
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 p-3 sm:p-6" onMouseDown={(e) => { if (e.target === e.currentTarget && !edit) onClose(); }} role="dialog" aria-modal="true" aria-label={`File ${batch.file_name}`}>
+    <div className="mx-auto max-w-7xl">
+    <Card title={`File: ${batch.file_name}`} right={
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={download} disabled={!lines?.length || incomplete} className={`${btnPrimary} inline-flex items-center gap-2 !py-1.5 !text-sm`}><Download size={16} /> Download again</button>
         <button onClick={onClose} className={`${btnGhost} inline-flex items-center gap-2 !py-1.5 !text-sm`}><X size={16} /> Close</button>
@@ -147,5 +157,7 @@ export function BatchView({ batch, canEdit, onClose, onChanged }: { batch: Batch
         </table>
       </div>
     </Card>
+    </div>
+    </div>
   );
 }

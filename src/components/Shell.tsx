@@ -24,6 +24,7 @@ const NAV: Nav[] = [
 const FIN_NAV: Nav[] = [
   { href: "/finance", label: "Overview", icon: Wallet, perm: "page_finance" },
   { href: "/finance/invoices", label: "Invoices", icon: Receipt, perm: "page_finance" },
+  { href: "/finance/credit", label: "Credit approvals", icon: ShieldCheck, perm: "credit_approve|sap_import" },
   { href: "/finance/sap-import", label: "SAP invoice import", icon: FileSpreadsheet, perm: "sap_import" },
   { href: "/finance/po", label: "PO & delivery", icon: ClipboardCheck, perm: "page_finance" },
   { href: "/finance/clients", label: "Clients", icon: Building2, perm: "page_finance" },
@@ -78,7 +79,7 @@ function Inner({ children }: { children: ReactNode }) {
     ...ADMIN_NAV.filter((n) => realCan(n.perm)),
     { href: "/account", label: "My account", icon: KeyRound, perm: "" },
   ];
-  const finItems = FIN_NAV.filter((n) => can(n.perm));
+  const finItems = FIN_NAV.filter((n) => n.perm.split("|").some((p) => can(p)));
   // a menu item may name several permissions ("a|b"): any one of them shows it
   const hrItems = HR_NAV.filter((n) => n.perm.split("|").some((p) => can(p)));
   const isActive = (href: string) => (href === "/" ? pathname === "/" : href === "/finance" || href === "/hr" || href === "/hr/leave" || href === "/hr/claims" ? pathname === href || (href === "/hr/claims" && (pathname === "/hr/claims/new" || /^\/hr\/claims\/c\w+$/.test(pathname))) : pathname.startsWith(href));

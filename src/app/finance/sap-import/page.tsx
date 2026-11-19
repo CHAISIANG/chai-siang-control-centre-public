@@ -7,6 +7,11 @@ import { useRole } from "@/components/role";
 import { supabase } from "@/lib/supabase";
 import { convert, parsePackList, parseSap, reconcile, writeImportFile, type ImportRow, type Issue, type SapLine } from "@/lib/sapInvoice";
 import { BatchView, type Batch } from "./BatchView";
+import { CreditCheck } from "@/components/credit/CreditCheck";
+import { useData } from "@/components/data";
+import { CHECKED_SALESMEN, creditCases, SAMPLE_AGING, type CustomerAging } from "@/lib/credit";
+import { askCredit, statusByDoc, useCreditSample, useCreditStore } from "@/lib/creditStore";
+import { useAuth } from "@/components/auth";
 
 const rm = (n: number) => n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const ymd = (d: Date | null) => (d ? `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}` : "");
@@ -22,15 +27,18 @@ const SAMPLE: unknown[][] = [
   ["SAMPLE-C01", "Sample Mini Market", "SAMPLE-S01", "900S000102", "17.11.2026", "PO-55102", 90000012, "Toothpaste Fresh 175g", 72, 2, "CS", 36, "EA", 1752, 1576.8, -175.2],
   ["SAMPLE-C01", "Sample Mini Market", "SAMPLE-S01", "900S000102", "17.11.2026", "PO-55102", 90000031, "Mouthwash Mint 750ml", 12, 3, "CS", 0, null, 630, 630, 0],
   ["SAMPLE-C01", "Sample Mini Market", "SAMPLE-S01", "900S000102", "17.11.2026", "PO-55102", 90000044, "Toothbrush Soft Twin Pack", 36, 0, null, 12, "EA", 270, 243, -27],
-  ["SAMPLE-C02", "Sample Pharmacy", "SAMPLE-S02", "900S000101", "17.11.2026", "900S000101", 90000020, "Dish Liquid Lime 900ml", 12, 5, "CS", 0, null, 540, 486, -54],
-  ["SAMPLE-C02", "Sample Pharmacy", "SAMPLE-S02", "900S000101", "17.11.2026", "900S000101", 90000012, "Toothpaste Fresh 175g", 72, 0, null, 24, "EA", 194.67, 194.67, 0],
-  ["SAMPLE-C02", "Sample Pharmacy", "SAMPLE-S02", "900S000101", "17.11.2026", "900S000101", 90000099, "Floor Cleaner Floral 2L", 0, 4, "CS", 0, null, 320, 320, 0],
+  ["SAMPLE-C02", "Sample Pharmacy", "MY01S00004", "900S000101", "17.11.2026", "900S000101", 90000020, "Dish Liquid Lime 900ml", 12, 5, "CS", 0, null, 540, 486, -54],
+  ["SAMPLE-C02", "Sample Pharmacy", "MY01S00004", "900S000101", "17.11.2026", "900S000101", 90000012, "Toothpaste Fresh 175g", 72, 0, null, 24, "EA", 194.67, 194.67, 0],
+  ["SAMPLE-C02", "Sample Pharmacy", "MY01S00004", "900S000101", "17.11.2026", "900S000101", 90000099, "Floor Cleaner Floral 2L", 0, 4, "CS", 0, null, 320, 320, 0],
+  ["SAMPLE-C02", "Sample Pharmacy", "MY01S00004", "900S000104", "17.11.2026", "PO-60231", 90000020, "Dish Liquid Lime 900ml", 12, 3, "CS", 0, null, 324, 291.6, -32.4],
+  ["SAMPLE-C03", "Sample Cash & Carry Sdn Bhd", "MY01S00011", "900S000103", "17.11.2026", "PO-77310", 90000031, "Mouthwash Mint 750ml", 12, 10, "CS", 0, null, 2100, 2100, 0],
 ];
 // What the sample would look like with history: one invoice already imported, one price changed.
 const SAMPLE_PACKS = ["90000044"];
 const SAMPLE_PRIOR = new Map([["900S000101", { at: "2026-11-16T09:30:00Z", file: "Sample earlier file.xlsx" }]]);
 const SAMPLE_LAST = new Map([["90000031", { price: 198, doc: "900S000088", date: "2026-11-10" }]]);
 
+const SAMPLE_AGING_MAP = new Map(SAMPLE_AGING.map((a) => [a.code, a]));
 type Loaded = { name: string; lines: SapLine[]; sample: boolean };
 type Prior = Map<string, { at: string; file: string }>;
 type Last = Map<string, { price: number; doc: string; date: string | null }>;
@@ -52,6 +60,15 @@ export default function SapImport() {
   const [recorded, setRecorded] = useState<{ for: Loaded; id: number } | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [viewing, setViewing] = useState<Batch | null>(null);
+  // credit check: approval status of each held invoice, and which invoices went into the last file made
+  const [inFile, setInFile] = useState<Set<string>>(new Set());
+  const { salesmen } = useData();
+  const { profile } = useAuth();
+  const [aging, setAging] = useState<{ for: Loaded; map: Map<string, CustomerAging> } | null>(null);
+  // the sample upload never touches the database, so its credit requests stay in this browser too
+  const creditSample = useCreditSample(!!data?.sample);
+  const creditStore = useCreditStore(creditSample);
+  const credit = statusByDoc(creditStore.approvals);
 
   const loadSaved = useCallback(async () => {
     const [p, b] = await Promise.all([
@@ -87,6 +104,25 @@ export default function SapImport() {
     return () => { live = false; };
   }, [data]);
 
+  // Credit check: the latest aging of the customers of salesmen 04, 11, 17, 21, 22 in this file.
+  useEffect(() => {
+    if (!data || data.sample) return;
+    let on = true;
+    (async () => {
+      const custs = [...new Set(data.lines.filter((l) => CHECKED_SALESMEN.includes(String(l.salesRep))).map((l) => String(l.customer)))];
+      const map = new Map<string, CustomerAging>();
+      if (custs.length) {
+        const { data: rows, error } = await supabase.rpc("credit_aging", { p_customers: custs });
+        if (!on) return;
+        if (error) { setMsg({ ok: false, text: `The credit check could not read the aging report: ${error.message}` }); return; }
+        for (const r of (rows ?? []) as { code: string; name: string; channel: string | null; owed: number; overdue: number; oldest_days: number; buckets: number[]; as_at: string | null }[])
+          map.set(r.code, { code: r.code, name: r.name, channel: r.channel, owed: Number(r.owed), overdue: Number(r.overdue), oldestDays: r.oldest_days, buckets: r.buckets.map(Number), asAt: r.as_at });
+      }
+      if (on) setAging({ for: data, map });
+    })();
+    return () => { on = false; };
+  }, [data]);
+
   const packs = data?.sample ? SAMPLE_PACKS : savedPacks;
   const packSet = useMemo(() => new Set(packs), [packs]);
   const result = useMemo(() => (data ? convert(data.lines, packSet) : null), [data, packSet]);
@@ -95,7 +131,8 @@ export default function SapImport() {
   // Checks against history are taken before this file is recorded, so it never warns about itself.
   const prior: Prior = data?.sample ? SAMPLE_PRIOR : checks?.for === data ? checks.prior : new Map();
   const last: Last = data?.sample ? SAMPLE_LAST : checks?.for === data ? checks.last : new Map();
-  const checking = !!data && !data.sample && checks?.for !== data;
+  // nothing can be downloaded until the history and credit checks are back, so a held invoice never slips into the file
+  const checking = !!data && !data.sample && (checks?.for !== data || aging?.for !== data);
 
   const priceIssues: Issue[] = [];
   if (result) {
@@ -109,7 +146,18 @@ export default function SapImport() {
     }
   }
   const priorDocs = totals.filter((t) => prior.has(t.docNo)).map((t) => t.docNo);
-  const outRows = (result?.rows ?? []).filter((r) => !(skipPrior && prior.has(r.docNo)));
+  // credit check: overdue customers of salesmen 04, 11, 17, 21, 22
+  const docsForCredit = useMemo(() => {
+    const m = new Map<string, { docNo: string; customer: string; customerName: string; salesRep: string; amount: number }>();
+    for (const r of result?.rows ?? []) { const d = m.get(r.docNo) ?? { docNo: r.docNo, customer: r.code, customerName: r.customerName, salesRep: r.agent, amount: 0 }; d.amount += r.amount; m.set(r.docNo, d); }
+    return [...m.values()];
+  }, [result]);
+  const agingMap = data?.sample ? SAMPLE_AGING_MAP : aging?.for === data ? aging.map : null;
+  const cases = useMemo(() => (agingMap ? creditCases(docsForCredit, agingMap) : []), [agingMap, docsForCredit]);
+  const held = new Set(cases.filter((c) => c.kind === "approval" && credit[c.docNo] !== "Approved").map((c) => c.docNo));
+  const outRows = (result?.rows ?? []).filter((r) => !(skipPrior && prior.has(r.docNo)) && !held.has(r.docNo));
+  const approvedLater = (result?.rows ?? []).filter((r) => inFile.size > 0 && !inFile.has(r.docNo) && cases.some((c) => c.docNo === r.docNo && c.kind === "approval" && credit[c.docNo] === "Approved"));
+  const salesmanName = (code: string) => salesmen.find((x) => x.code === code)?.name ?? code;
 
   async function sheetsOf(f: File) {
     const { default: readXlsxFile } = await import("read-excel-file/browser");
@@ -156,7 +204,14 @@ export default function SapImport() {
 
   function trySample() {
     setData({ name: "Sample export (made-up data)", lines: parseSap(SAMPLE).lines, sample: true });
-    setDoc(""); setQ(""); setMsg(null); setSkipPrior(true);
+    setDoc(""); setQ(""); setMsg(null); setSkipPrior(true); setInFile(new Set());
+  }
+  async function downloadApproved() {
+    if (!approvedLater.length) return;
+    const first = approvedLater.find((r) => r.docDate)?.docDate ?? null;
+    await writeImportFile(approvedLater, `Invoice import ${ymd(first) || "SAP"} approved.xlsx`);
+    setInFile((s) => new Set([...s, ...approvedLater.map((r) => r.docNo)]));
+    setMsg({ ok: true, text: `${new Set(approvedLater.map((r) => r.docNo)).size} approved ${new Set(approvedLater.map((r) => r.docNo)).size === 1 ? "invoice" : "invoices"} downloaded in a follow-up file${data?.sample ? " (sample)" : ""}.` });
   }
 
   async function download() {
@@ -177,6 +232,10 @@ export default function SapImport() {
     }
     const first = outRows.find((r) => r.docDate)?.docDate ?? null;
     await writeImportFile(outRows, `Invoice import ${ymd(first) || "SAP"}.xlsx`);
+    setInFile(new Set(outRows.map((r) => r.docNo)));
+    // supermarkets in this file: their sales reps are reminded to chase the overdue payment
+    const remind = cases.filter((c) => c.kind === "reminder" && outRows.some((r) => r.docNo === c.docNo));
+    if (remind.length) { const r = await askCredit(creditSample, remind, data.name, profile?.full_name ?? "Finance", ""); if (!r.ok) setMsg({ ok: false, text: `The file was downloaded, but the sales rep reminders were not sent: ${r.text}` }); }
     setBusy(false);
   }
 
@@ -246,6 +305,10 @@ export default function SapImport() {
               <Kpi label="Checks" value={checking ? "Checking…" : errors.length ? `${errors.length} to fix` : warns.length || priorDocs.length ? `${warns.length + priorDocs.length} to look at` : "All clear"} tone={checking ? "neutral" : errors.length ? "bad" : warns.length || priorDocs.length ? "warn" : "good"} sub={checking ? "Comparing with earlier imports" : errors.length ? "These lines are left out of the file" : warns.length || priorDocs.length ? "The file is ready; these are worth a look" : "Nothing unusual found"} />
             </KpiStrip>
           </div>
+
+          <CreditCheck cases={cases} status={credit} salesmanName={salesmanName}
+            onAsk={async (docs, note) => { const r = await askCredit(creditSample, cases.filter((c) => docs.includes(c.docNo)), data.name, profile?.full_name ?? "Finance", note); setMsg({ ok: r.ok, text: r.ok ? `${r.text} Finance, Management or a Director decides on Credit approvals.` : r.text }); }}
+            approvedReady={new Set(approvedLater.map((r) => r.docNo)).size} onDownloadApproved={downloadApproved} />
 
           {priorDocs.length > 0 && (
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">

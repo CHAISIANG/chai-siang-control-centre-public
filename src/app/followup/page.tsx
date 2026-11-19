@@ -5,6 +5,7 @@ import { OverdueVsOwed } from "@/components/charts";
 import { useRole } from "@/components/role";
 import { useData } from "@/components/data";
 import { supabase } from "@/lib/supabase";
+import { CreditReminders } from "@/components/credit/CreditReminders";
 
 // Collection follow-up: the salesman records what happened with each overdue invoice, and everyone with access can see it.
 // Statuses live apart from the aging report, so a new aging upload never wipes them. A paid invoice drops off the next report.
@@ -150,6 +151,7 @@ export default function FollowUp() {
   return (
     <>
       <PageHeader title="Collection follow-up" sub={`Record what happened with each overdue invoice. Based on the aging report${asAtText ? ` as at ${asAtText}` : ""}. A paid invoice leaves this list when the next aging report is uploaded.`} />
+      <CreditReminders />
 
       <KpiStrip>
         <Kpi label="Total overdue" value={loading ? "…" : moneyK(allOverdue)} sub={`${overduePct}% of the ${moneyK(allOwed)} owed · ${custs.length} customers`} tone={overduePct >= 60 ? "bad" : overduePct >= 40 ? "warn" : "good"} pct={overduePct} />

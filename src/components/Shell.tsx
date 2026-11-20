@@ -67,17 +67,9 @@ function Inner({ children }: { children: ReactNode }) {
   const { profile, signOut } = useAuth();
   const [open, setOpen] = useState(false);
   const [dark, setDark] = useState(false);
-  // menu groups the person folded away; remembered in this browser
-  const [folded, setFolded] = useState<Record<string, boolean>>({});
-  useEffect(() => {
-    try { const raw = localStorage.getItem("cssb.menu.folded"); // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (raw) setFolded(JSON.parse(raw)); } catch { /* start with everything open */ }
-  }, []);
-  const toggleGroup = (label: string) => setFolded((f) => {
-    const next = { ...f, [label]: !f[label] };
-    try { localStorage.setItem("cssb.menu.folded", JSON.stringify(next)); } catch { /* ignore */ }
-    return next;
-  });
+  // Menu groups start folded every time the app opens; the ones you open stay open while you use it.
+  const [opened, setOpened] = useState<Record<string, boolean>>({});
+  const toggleGroup = (label: string) => setOpened((o) => ({ ...o, [label]: !o[label] }));
   useEffect(() => {
     // Read the theme the page already applied before hydration.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -111,7 +103,7 @@ function Inner({ children }: { children: ReactNode }) {
   // A folded group hides its pages, except the page you are on, so you still see where you are.
   const section = (label: string, list: Nav[]) => {
     if (list.length === 0) return false;
-    const fold = !!folded[label];
+    const fold = label !== "Overview" && !opened[label];
     const shown = fold ? list.filter((n) => n.href === current?.href) : list;
     return (
       <div key={label} role="group" aria-label={label} className="mt-4 first:mt-1">

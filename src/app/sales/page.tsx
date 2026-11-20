@@ -1,12 +1,11 @@
 "use client";
 import { useState } from "react";
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useRole } from "@/components/role";
 import { useData } from "@/components/data";
 import { Badge, Card, PageHeader, Td, Th } from "@/components/ui";
-import { MONTHS, newCustomerSources, NOV, rm, sumStats } from "@/lib/mock";
-
-const COLORS = ["#1f5c8a", "#0ea5e9", "#10b981", "#f59e0b", "#66737b"];
+import { SalesPerformance } from "@/components/SalesPerformance";
+import { MONTHS, NOV, rm, sumStats } from "@/lib/mock";
 
 export default function Sales() {
   const { filterSalesman } = useRole();
@@ -59,22 +58,8 @@ export default function Sales() {
             </ResponsiveContainer>
           </div>
         </Card>
-        <Card title="New customers by source (sample)">
-          <div className="h-52">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={newCustomerSources} dataKey="value" nameKey="source" innerRadius={45} outerRadius={80}>
-                  {newCustomerSources.map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <ul className="mt-2 space-y-1 text-xs text-slate-600">
-            {newCustomerSources.map((s, i) => (
-              <li key={s.source} className="flex items-center justify-between"><span className="flex items-center gap-2"><i className="inline-block h-2 w-2 rounded-full" style={{ background: COLORS[i] }} />{s.source}</span><b>{s.value}</b></li>
-            ))}
-          </ul>
+        <Card title={`Sales performance · ${MONTHS[mi]}`}>
+          <SalesPerformance rows={list.map((x) => ({ name: x.name, sales: x.stats[mi].sales, target: x.stats[mi].target }))} />
         </Card>
       </div>
 

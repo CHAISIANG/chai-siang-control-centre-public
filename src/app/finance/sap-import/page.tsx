@@ -206,9 +206,27 @@ export default function SapImport() {
     setData({ name: "Sample export (made-up data)", lines: parseSap(SAMPLE).lines, sample: true });
     setDoc(""); setQ(""); setMsg(null); setSkipPrior(true); setInFile(new Set());
   }
+  /** Record the lines going into a file, with every column, so history keeps them and each invoice becomes a delivery job. */
+  function recordRows(file: string, rows: typeof outRows) {
+    return supabase.rpc("sap_import_record", {
+      p_file: file,
+      p_lines: rows.map((r) => ({
+        doc_no: r.docNo, doc_date: iso(r.docDate), customer: r.code, customer_name: r.customerName, agent: r.agent, doc_ref: r.docRef,
+        item_code: String(r.itemCode), description: r.desc, uom: r.uom, qty: r.qty, unit_price: r.unitPrice, amount: r.amount, discount: r.discount, suom_qty: r.suomQty, split: r.split,
+      })),
+    });
+  }
   async function downloadApproved() {
     if (!approvedLater.length) return;
     const first = approvedLater.find((r) => r.docDate)?.docDate ?? null;
+    // the follow-up file is recorded like any other import, so its invoices appear in Import history and become delivery jobs
+    if (data && !data.sample) {
+      setBusy(true);
+      const { error } = await recordRows(`${data.name} (approved invoices)`, approvedLater);
+      setBusy(false);
+      if (error) { setMsg({ ok: false, text: `Nothing was downloaded: the import could not be recorded. ${error.message}` }); return; }
+      void loadSaved();
+    }
     await writeImportFile(approvedLater, `Invoice import ${ymd(first) || "SAP"} approved.xlsx`);
     setInFile((s) => new Set([...s, ...approvedLater.map((r) => r.docNo)]));
     setMsg({ ok: true, text: `${new Set(approvedLater.map((r) => r.docNo)).size} approved ${new Set(approvedLater.map((r) => r.docNo)).size === 1 ? "invoice" : "invoices"} downloaded in a follow-up file${data?.sample ? " (sample)" : ""}.` });
@@ -219,13 +237,7 @@ export default function SapImport() {
     setBusy(true); setMsg(null);
     // Record what goes into the file first, so the next upload can warn about these invoices.
     if (!data.sample && !isRecorded) {
-      const { data: id, error } = await supabase.rpc("sap_import_record", {
-        p_file: data.name,
-        p_lines: outRows.map((r) => ({
-          doc_no: r.docNo, doc_date: iso(r.docDate), customer: r.code, customer_name: r.customerName, agent: r.agent, doc_ref: r.docRef,
-          item_code: String(r.itemCode), description: r.desc, uom: r.uom, qty: r.qty, unit_price: r.unitPrice, amount: r.amount, discount: r.discount, suom_qty: r.suomQty, split: r.split,
-        })),
-      });
+      const { data: id, error } = await recordRows(data.name, outRows);
       if (error) { setMsg({ ok: false, text: `Nothing was downloaded: the import could not be recorded. ${error.message}` }); setBusy(false); return; }
       setRecorded({ for: data, id: id as number });
       void loadSaved();

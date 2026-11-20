@@ -7,7 +7,8 @@ import { useRole } from "@/components/role";
 import { useData } from "@/components/data";
 import { Badge, Card, Kpi, PageHeader, RoadBar } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
-import { buildDaily, drivers, fmt, getPendingInvoices, MONTHS, NOV, pct, rm, rmK, sumStats, type DailyRow } from "@/lib/mock";
+import { buildDaily, fmt, MONTHS, NOV, pct, rm, rmK, sumStats, type DailyRow } from "@/lib/mock";
+import { useDelivery } from "@/lib/delivery/store";
 
 const PANELS = ["Sales vs target", "Coverage (RL / Active / ERC)", "Collection", "Deliveries", "Claims"];
 
@@ -15,7 +16,8 @@ export default function Dashboard() {
   const { filterSalesman, can, verified, toggleVerified } = useRole();
   const { salesmen, customers, claims, mtdDay, asAt } = useData();
   const [dailyRows, setDailyRows] = useState<DailyRow[]>([]);
-  const pendingInvoices = useMemo(() => getPendingInvoices(customers), [customers]);
+  // Deliveries come from the delivery tracking (only for people who may see Logistics).
+  const { jobs } = useDelivery(false, !filterSalesman && can("page_logistics"));
   const [mi, setMi] = useState(NOV);
   const [pickSm, setPickSm] = useState("all");
   const sel = filterSalesman ?? (pickSm === "all" ? null : pickSm);
@@ -46,7 +48,8 @@ export default function Dashboard() {
     if (!sel && rest.length) rows.push({ name: "Other customers (no current salesman)", owed: rest.reduce((a, c) => a + c.outstanding, 0), overdue: rest.reduce((a, c) => a + lateOf(c), 0) });
     return rows;
   })();
-  const del = drivers.reduce((a, d) => ({ t: a.t + d.total, d: a.d + d.delivered, f: a.f + d.failed }), { t: 0, d: 0, f: 0 });
+  const jn = (st: string) => jobs.filter((j) => j.status === st).length;
+  const del = { toPick: jn("Invoiced"), toLoad: jn("Picked"), out: jn("Loaded"), pod: jn("Delivered"), f: jn("Failed") };
   const myClaims = sel ? claims.filter((c) => c.salesman === (first?.name ?? "")) : claims;
   const pendingClaims = myClaims.filter((c) => c.status === "Pending supervisor");
   const daily = buildDaily(dailyRows, sumStats(list, NOV).target, mtdDay);
@@ -66,7 +69,7 @@ export default function Dashboard() {
   const doneCount = PANELS.filter((p) => verified[p]).length;
   const behind = list.filter((s) => pct(s.stats[mi].sales, s.stats[mi].target) < 90);
   const lowCover = list.filter((s) => s.stats[mi].erc < 60);
-  const toDeliver = del.t - del.d - del.f;
+  const toDeliver = del.toPick + del.toLoad + del.out;
   const few = (names: string[], n = 3) => (names.length <= n ? names.join(", ") : `${names.slice(0, n).join(", ")} and ${names.length - n} more`);
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   const attention: { tone: "red" | "amber" | "blue"; tag: string; head: string; detail?: string; href: string }[] = [
@@ -75,7 +78,7 @@ export default function Dashboard() {
     ...(late90.length ? [{ tone: "amber" as const, tag: "Collection", head: `${plural(late90.length, "customer has", "customers have")} invoices over 90 days late.`, detail: `${rmK(overdue90)} in all.`, href: "/followup" }] : []),
     ...(pendingClaims.length ? [{ tone: "blue" as const, tag: "Claims", head: `${plural(pendingClaims.length, "claim is", "claims are")} waiting for the supervisor.`, detail: `${rm(pendingClaims.reduce((s, c) => s + c.amount, 0))} in all.`, href: "/claims" }] : []),
     ...(waitingColgate.length ? [{ tone: "blue" as const, tag: "Colgate", head: `${plural(waitingColgate.length, "claim is", "claims are")} waiting for Colgate's final approval.`, detail: `${rm(waitingColgate.reduce((s, c) => s + c.amount, 0))} in all.`, href: "/claims" }] : []),
-    ...(showLogistics && (toDeliver > 0 || del.f > 0) ? [{ tone: "amber" as const, tag: "Delivery", head: `${plural(toDeliver, "invoice", "invoices")} still to deliver today.`, detail: `${plural(del.f, "failed delivery", "failed deliveries")} to reschedule.`, href: "/logistics" }] : []),
+    ...(showLogistics && (toDeliver > 0 || del.f > 0 || del.pod > 0) ? [{ tone: "amber" as const, tag: "Delivery", head: `${plural(toDeliver, "invoice", "invoices")} still to deliver.`, detail: `${plural(del.f, "failed delivery", "failed deliveries")} to reschedule, ${plural(del.pod, "POD", "PODs")} missing.`, href: "/logistics" }] : []),
   ];
   const monthLabel = isNov ? `Nov 2026 MTD (1–${mtdDay} Nov)` : `${MONTHS[mi]} 2026`;
 
@@ -136,7 +139,7 @@ export default function Dashboard() {
           <Kpi label={`Total owed to us${asAt ? ` · aging ${asAt.slice(8)}/${asAt.slice(5, 7)}` : ""}`} value={rmK(owed)} sub={`${rmK(owed - overdueAll)} not yet due`} />
           <Kpi label="Total overdue" value={rmK(overdueAll)} sub={`${overduePct}% of total owed · ${rmK(overdue90)} over 90 days`} tone={overduePct >= 60 ? "bad" : overduePct >= 40 ? "warn" : "good"} pct={overduePct} />
           {showLogistics ? (
-            <Kpi label="Delivered today · sample" value={`${del.d} of ${del.t}`} sub={`${del.t - del.d - del.f} pending, ${del.f} failed`} tone={pct(del.d, del.t) >= 80 ? "good" : "warn"} pct={pct(del.d, del.t)} />
+            <Kpi label="Out for delivery" value={`${del.out}`} sub={`${del.toPick} to pick, ${del.toLoad} to load, ${del.pod} POD missing, ${del.f} failed`} tone={del.pod + del.f > 0 ? "warn" : "good"} />
           ) : (
             <Kpi label="Claims awaiting approval" value={`${pendingClaims.length}`} sub={rm(pendingClaims.reduce((s, c) => s + c.amount, 0))} tone={pendingClaims.length ? "warn" : "good"} />
           )}
@@ -236,8 +239,8 @@ export default function Dashboard() {
               {pendingClaims.slice(0, 2).map((c) => (
                 <li key={c.id} className="grid grid-cols-[72px_1fr] items-start gap-3 py-2.5 first:pt-0 last:pb-0"><span className="pt-0.5"><Badge tone="blue">Claim</Badge></span><span className="text-slate-700"><b className="font-medium text-slate-900">{c.id}</b> ({rm(c.amount)}) waiting for the supervisor since {c.submitted}.</span></li>
               ))}
-              {showLogistics && pendingInvoices.filter((p) => p.age !== "Today").slice(0, 2).map((p) => (
-                <li key={p.inv} className="grid grid-cols-[72px_1fr] items-start gap-3 py-2.5 first:pt-0 last:pb-0"><span className="pt-0.5"><Badge tone="grey">Delivery</Badge></span><span className="text-slate-700"><b className="font-medium text-slate-900">{p.inv}</b> · {p.customer}: {p.status}.</span></li>
+              {showLogistics && jobs.filter((j) => j.status === "Failed" || j.status === "Delivered").slice(0, 2).map((p) => (
+                <li key={p.docNo} className="grid grid-cols-[72px_1fr] items-start gap-3 py-2.5 first:pt-0 last:pb-0"><span className="pt-0.5"><Badge tone="grey">Delivery</Badge></span><span className="text-slate-700"><b className="font-medium text-slate-900">{p.docNo}</b> · {p.customerName}: {p.status === "Failed" ? "delivery failed, plan again" : "delivered, POD not scanned yet"}.</span></li>
               ))}
             </ul>
           </Card>

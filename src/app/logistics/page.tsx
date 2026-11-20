@@ -6,7 +6,10 @@ import { Badge, Card, Kpi, KpiStrip, PageHeader, Plate, Td, Th } from "@/compone
 import { useData } from "@/components/data";
 import { useRole } from "@/components/role";
 import { supabase } from "@/lib/supabase";
-import { drivers, getPendingInvoices, LORRY_STATUSES, pct, pipeline, type Lorry, type LorryStatus } from "@/lib/mock";
+import Link from "next/link";
+import { LORRY_STATUSES, pct, type Lorry, type LorryStatus } from "@/lib/mock";
+import { STATUSES, statusTone, vehicleText, type Status } from "@/lib/delivery/rules";
+import { useDelivery, useDeliverySample } from "@/lib/delivery/store";
 
 const TEMPLATE_HEADERS = ["Lorry No", "Driver", "Route", "Remark", "Invoices Loaded", "Load %"];
 const TEMPLATE_URL = "/templates/Lorry%20Status%20Template.xlsx";
@@ -59,9 +62,10 @@ async function parseLorryFile(file: File): Promise<ImportResult> {
 }
 
 export default function Logistics() {
-  const { lorries, customers, reloadLorries } = useData();
+  const { lorries, reloadLorries } = useData();
   const { can } = useRole();
-  const pendingInvoices = useMemo(() => getPendingInvoices(customers), [customers]);
+  const sample = useDeliverySample();
+  const { jobs } = useDelivery(sample, can("page_logistics"));
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<LorryStatus | "All">("All");
@@ -70,8 +74,28 @@ export default function Logistics() {
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
-  const t = drivers.reduce((a, d) => ({ total: a.total + d.total, del: a.del + d.delivered, f: a.f + d.failed }), { total: 0, del: 0, f: 0 });
-  const max = pipeline[0].count;
+  // Deliveries come from the delivery tracking, not from a sample.
+  const todayMYT = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur" }).format(new Date());
+  const dayDiff = (a: string, b: string) => Math.round((new Date(`${a}T00:00:00Z`).getTime() - new Date(`${b}T00:00:00Z`).getTime()) / 86400000);
+  const n = (st: Status) => jobs.filter((j) => j.status === st).length;
+  const stageMax = Math.max(1, ...STATUSES.filter((st) => st !== "Failed").map(n));
+  const last = (j: (typeof jobs)[number]) => (j.events[j.events.length - 1]?.at ?? "").slice(0, 10);
+  const trips = useMemo(() => {
+    const m = new Map<string, { who: string; routes: Set<string>; total: number; done: number; failed: number }>();
+    for (const j of jobs) {
+      if (!j.vehicle) continue;
+      if (j.status === "Completed" && dayDiff(todayMYT, last(j)) > 1) continue;
+      const k = vehicleText(j.vehicle) || "-";
+      const g = m.get(k) ?? { who: k, routes: new Set<string>(), total: 0, done: 0, failed: 0 };
+      if (j.route) g.routes.add(j.route);
+      g.total++; if (j.status === "Delivered" || j.status === "Completed") g.done++; if (j.status === "Failed") g.failed++;
+      m.set(k, g);
+    }
+    return [...m.values()].sort((a, b) => b.total - a.total);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs]);
+  const NEXT: Record<Status, string> = { Invoiced: "Pick it", Picked: "Load it", Loaded: "Out for delivery", Delivered: "Scan the POD", Completed: "", Failed: "Plan again" };
+  const pending = jobs.filter((j) => j.status !== "Completed").map((j) => ({ ...j, age: Math.max(0, dayDiff(todayMYT, j.docDate || todayMYT)) })).sort((a, b) => b.age - a.age).slice(0, 25);
   const count = (s: LorryStatus) => lorries.filter((l) => l.status === s).length;
   const shown = lorries.filter((l) => filter === "All" || l.status === filter);
 
@@ -98,7 +122,7 @@ export default function Logistics() {
 
   return (
     <>
-      <PageHeader title="Logistics · Daily Delivery Status" sub="Today, 13 Nov 2026 · lorries, drivers and every invoice from order to delivered" />
+      <PageHeader title="Logistics · Daily Delivery Status" sub="Lorries, drivers and every invoice from picking to a scanned proof of delivery." right={<div className="flex flex-wrap gap-3 text-sm"><Link href="/logistics/deliveries" className="text-indigo-600 hover:underline">Deliveries</Link><Link href="/logistics/exceptions" className="text-indigo-600 hover:underline">Exceptions</Link><Link href="/logistics/damaged" className="text-indigo-600 hover:underline">Damaged stock</Link><Link href="/logistics/sop" className="text-indigo-600 hover:underline">Warehouse SOP</Link></div>} />
 
       {/* Lorry status */}
       <Card title="Lorry status" right={<span className="text-xs text-slate-500">{lorries.length} lorries in fleet</span>}>
@@ -184,22 +208,24 @@ export default function Logistics() {
       )}
 
       {/* Delivery summary */}
+      {sample && <p className="mt-5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">Sample deliveries, not real.</p>}
       <div className="mt-5">
-        <KpiStrip>
-          <Kpi label="Invoices today" value={`${t.total}`} />
-          <Kpi label="Delivered" value={`${t.del}`} sub={`${pct(t.del, t.total)}% complete`} tone="good" pct={pct(t.del, t.total)} />
-          <Kpi label="Pending" value={`${t.total - t.del - t.f}`} sub="out for delivery or waiting" tone="warn" />
-          <Kpi label="Failed, to reschedule" value={`${t.f}`} tone={t.f ? "bad" : "good"} />
+        <KpiStrip cols="lg:grid-cols-5">
+          <Kpi label="To pick" value={`${n("Invoiced")}`} sub="Invoiced, not picked" tone={n("Invoiced") ? "warn" : "good"} />
+          <Kpi label="To load" value={`${n("Picked")}`} sub="Picked and checked" />
+          <Kpi label="Out for delivery" value={`${n("Loaded")}`} sub="Loaded" />
+          <Kpi label="POD missing" value={`${n("Delivered")}`} sub="Delivered, not scanned" tone={n("Delivered") ? "bad" : "good"} />
+          <Kpi label="Failed, to reschedule" value={`${n("Failed")}`} tone={n("Failed") ? "bad" : "good"} />
         </KpiStrip>
       </div>
 
       <div className="mt-5 grid gap-5 lg:grid-cols-3">
-        <Card title="Status by department step" className="lg:col-span-1">
+        <Card title="Status by step" className="lg:col-span-1">
           <ul className="space-y-3">
-            {pipeline.map((p) => (
-              <li key={p.stage}>
-                <div className="mb-1 flex justify-between text-xs text-slate-600"><span>{p.stage}</span><b>{p.count}</b></div>
-                <div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-indigo-500" style={{ width: `${pct(p.count, max)}%` }} /></div>
+            {STATUSES.filter((st) => st !== "Failed").map((st) => (
+              <li key={st}>
+                <div className="mb-1 flex justify-between text-xs text-slate-600"><span>{st === "Delivered" ? "Delivered, POD missing" : st}</span><b>{n(st)}</b></div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-indigo-500" style={{ width: `${pct(n(st), stageMax)}%` }} /></div>
               </li>
             ))}
           </ul>
@@ -207,13 +233,14 @@ export default function Logistics() {
         <Card title="Driver / route progress" className="lg:col-span-2">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="border-b border-slate-200"><tr><Th>Driver / lorry</Th><Th>Route</Th><Th right>Total</Th><Th right>Done</Th><Th right>Failed</Th><Th>Progress</Th></tr></thead>
+              <thead className="border-b border-slate-200"><tr><Th>Driver / lorry or transporter</Th><Th>Route</Th><Th right>Total</Th><Th right>Done</Th><Th right>Failed</Th><Th>Progress</Th></tr></thead>
               <tbody>
-                {drivers.map((d) => (
-                  <tr key={d.name} className="border-b border-slate-100 last:border-0">
-                    <Td><b>{d.name}</b><div className="mt-0.5"><Plate small>{d.lorry}</Plate></div></Td><Td>{d.route}</Td>
-                    <Td right>{d.total}</Td><Td right>{d.delivered}</Td><Td right className={d.failed ? "font-medium text-rose-600" : ""}>{d.failed}</Td>
-                    <Td><div className="flex items-center gap-2"><div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-emerald-500" style={{ width: `${pct(d.delivered, d.total)}%` }} /></div><span className="text-xs">{pct(d.delivered, d.total)}%</span></div></Td>
+                {trips.length === 0 && <tr><Td first className="text-slate-500">No loaded invoices yet.</Td></tr>}
+                {trips.map((d) => (
+                  <tr key={d.who} className="border-b border-slate-100 last:border-0">
+                    <Td><b>{d.who}</b></Td><Td>{[...d.routes].join(", ") || "-"}</Td>
+                    <Td right>{d.total}</Td><Td right>{d.done}</Td><Td right className={d.failed ? "font-medium text-rose-600" : ""}>{d.failed}</Td>
+                    <Td><div className="flex items-center gap-2"><div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-emerald-500" style={{ width: `${pct(d.done, d.total)}%` }} /></div><span className="text-xs text-slate-500">{pct(d.done, d.total)}%</span></div></Td>
                   </tr>
                 ))}
               </tbody>
@@ -222,16 +249,18 @@ export default function Logistics() {
         </Card>
       </div>
 
-      <Card title="Pending invoices — next action" className="mt-5">
+      <Card title="Pending invoices: next action" className="mt-5" right={<Link href="/logistics/deliveries" className="text-sm text-indigo-600 hover:underline">All deliveries</Link>}>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="border-b border-slate-200"><tr><Th>Invoice</Th><Th>Customer</Th><Th>Driver</Th><Th>Status</Th><Th>Age</Th></tr></thead>
+            <thead className="border-b border-slate-200"><tr><Th>Invoice</Th><Th>Customer</Th><Th>Driver / lorry</Th><Th>Status</Th><Th>Next</Th><Th right>Age</Th></tr></thead>
             <tbody>
-              {pendingInvoices.map((p) => (
-                <tr key={p.inv} className="border-b border-slate-100 last:border-0">
-                  <Td><b>{p.inv}</b></Td><Td>{p.customer}</Td><Td>{p.driver}</Td>
-                  <Td><Badge tone={p.status.startsWith("Out") ? "blue" : p.status.startsWith("Waiting") ? "grey" : "red"}>{p.status}</Badge></Td>
-                  <Td>{p.age}</Td>
+              {pending.length === 0 && <tr><Td first className="text-slate-500">Nothing pending.</Td></tr>}
+              {pending.map((p) => (
+                <tr key={p.docNo} className="border-b border-slate-100 last:border-0">
+                  <Td><b>{p.docNo}</b></Td><Td>{p.customerName}</Td><Td>{vehicleText(p.vehicle) || "-"}</Td>
+                  <Td><Badge tone={statusTone(p.status)}>{p.status === "Delivered" ? "POD missing" : p.status}</Badge></Td>
+                  <Td>{NEXT[p.status]}</Td>
+                  <Td right>{p.age === 0 ? "Today" : `${p.age} ${p.age === 1 ? "day" : "days"}`}</Td>
                 </tr>
               ))}
             </tbody>

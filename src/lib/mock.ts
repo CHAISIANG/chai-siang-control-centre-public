@@ -15,8 +15,6 @@ function rng(seed: number) {
   };
 }
 const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
-const r = rng(2026);
-const between = (min: number, max: number) => min + r() * (max - min);
 
 export const TODAY = "13 Nov 2026";
 export const DAYS_ELAPSED = 13;
@@ -125,51 +123,6 @@ export const newCustomerSources = [
   { source: "Principal lead", value: 4 },
   { source: "Social media", value: 3 },
 ];
-
-// ---- Logistics (today, sample) ----
-export type Driver = {
-  name: string;
-  lorry: string;
-  route: string;
-  total: number;
-  delivered: number;
-  failed: number;
-};
-const driverSeed: [string, string, string, number][] = [
-  ["Driver A", "SMP 1001", "Rawang – Kuang", 34],
-  ["Driver B", "SMP 1002", "Batang Kali – KKB", 28],
-  ["Driver C", "SMP 1003", "Selayang – Gombak", 41],
-  ["Driver D", "SMP 1004", "Kajang – Semenyih", 31],
-  ["Driver E", "SMP 1005", "Puchong – Klang", 37],
-  ["Driver F", "SMP 1006", "Shah Alam – Subang", 26],
-];
-export const drivers: Driver[] = driverSeed.map(([name, lorry, route, total]) => {
-  const delivered = Math.round(total * between(0.45, 0.95));
-  const failed = r() > 0.6 ? Math.floor(between(1, 3)) : 0;
-  return { name, lorry, route, total, delivered, failed };
-});
-
-export type Stage = { stage: string; count: number };
-export const pipeline: Stage[] = [
-  { stage: "Sales order received", count: 238 },
-  { stage: "Invoiced", count: 227 },
-  { stage: "Picked & packed", count: 214 },
-  { stage: "Loaded on lorry", count: 197 },
-  { stage: "Delivered", count: drivers.reduce((s, d) => s + d.delivered, 0) },
-];
-
-const pendingSeed: [string, number, string, string, string][] = [
-  ["900S158492", 23, "Driver C", "Out for delivery", "Today"],
-  ["900S158487", 46, "Driver A", "Out for delivery", "Today"],
-  ["900S158201", 69, "Driver B", "Customer closed – reschedule", "1 day"],
-  ["900S158044", 92, "Driver E", "Out for delivery", "Today"],
-  ["900S157790", 115, "Driver D", "Short stock – partial", "2 days"],
-  ["900S157733", 138, "Driver F", "Waiting to load", "Today"],
-  ["900S157702", 161, "Driver A", "Customer closed – reschedule", "1 day"],
-  ["900S157688", 184, "Driver C", "Waiting to load", "Today"],
-];
-export const getPendingInvoices = (customers: Customer[]) =>
-  pendingSeed.map(([inv, i, driver, status, age]) => ({ inv, customer: customers.length ? customers[i % customers.length].name : "—", driver, status, age }));
 
 // ---- Claims (PAF) ----
 export type ClaimStatus = "Draft" | "Pending supervisor" | "Pending Colgate" | "Approved by Colgate" | "Paid" | "Returned";

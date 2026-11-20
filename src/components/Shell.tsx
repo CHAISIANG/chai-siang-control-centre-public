@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { BookOpen, LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall, Home, Clock, CalendarPlus, History, CalendarDays, CheckSquare, UsersRound, IdCard, CalendarHeart, BarChart3, SlidersHorizontal, ReceiptText, ClipboardCheck as ClaimCheck, Banknote, PieChart, Settings2 } from "lucide-react";
+import { BookOpen, ChevronDown, LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall, Home, Clock, CalendarPlus, History, CalendarDays, CheckSquare, UsersRound, IdCard, CalendarHeart, BarChart3, SlidersHorizontal, ReceiptText, ClipboardCheck as ClaimCheck, Banknote, PieChart, Settings2 } from "lucide-react";
 import { RoleProvider, useRole } from "./role";
 import { AuthProvider, useAuth } from "./auth";
 import { DataProvider, useData } from "./data";
@@ -67,6 +67,17 @@ function Inner({ children }: { children: ReactNode }) {
   const { profile, signOut } = useAuth();
   const [open, setOpen] = useState(false);
   const [dark, setDark] = useState(false);
+  // menu groups the person folded away; remembered in this browser
+  const [folded, setFolded] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    try { const raw = localStorage.getItem("cssb.menu.folded"); // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (raw) setFolded(JSON.parse(raw)); } catch { /* start with everything open */ }
+  }, []);
+  const toggleGroup = (label: string) => setFolded((f) => {
+    const next = { ...f, [label]: !f[label] };
+    try { localStorage.setItem("cssb.menu.folded", JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
   useEffect(() => {
     // Read the theme the page already applied before hydration.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -97,12 +108,22 @@ function Inner({ children }: { children: ReactNode }) {
       </Link>
     );
   };
-  const section = (label: string, list: Nav[]) => list.length > 0 && (
-    <div key={label} role="group" aria-label={label} className="mt-5 first:mt-1">
-      <div className="px-5 pb-1.5 text-xs font-medium text-white/40">{label}</div>
-      <div className="space-y-0.5">{list.map((n) => link(n))}</div>
-    </div>
-  );
+  // A folded group hides its pages, except the page you are on, so you still see where you are.
+  const section = (label: string, list: Nav[]) => {
+    if (list.length === 0) return false;
+    const fold = !!folded[label];
+    const shown = fold ? list.filter((n) => n.href === current?.href) : list;
+    return (
+      <div key={label} role="group" aria-label={label} className="mt-4 first:mt-1">
+        <button type="button" onClick={() => toggleGroup(label)} aria-expanded={!fold}
+          className="flex w-full items-center justify-between px-5 pb-1.5 text-left text-xs font-medium text-white/45 hover:text-white/80">
+          <span>{label}</span>
+          <ChevronDown size={14} className={`transition-transform ${fold ? "-rotate-90" : ""}`} aria-hidden />
+        </button>
+        <div className="space-y-0.5">{shown.map((n) => link(n))}</div>
+      </div>
+    );
+  };
   const groups = ["Overview", "Sales", "Operations", "Data"];
   const mainItems = items.filter((n) => NAV.includes(n));
   const current = [...NAV, ...FIN_NAV, ...HR_NAV, ...ADMIN_NAV, { href: "/account", label: "My account", icon: KeyRound, perm: "" }].filter((n) => isActive(n.href)).sort((a, b) => b.href.length - a.href.length)[0];

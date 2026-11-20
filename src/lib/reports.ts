@@ -41,24 +41,36 @@ export function detectReport(rows: Row[]): Kind | null {
 
 // ---------- aging ----------
 export type AgingInvoice = { doc: string; date: string; custCode: string; customer: string; terms: number; due: string; agent: string; amount: number; age: number; outstanding: number; note: string };
-export type Aging = { invoices: AgingInvoice[]; fileGrandTotal?: number; fileSideTotals: { label: string; total: number }[]; sum: number };
+export type Aging = { invoices: AgingInvoice[]; fileGrandTotal?: number; fileSideTotals: { label: string; total: number }[]; sum: number; leftOut: { count: number; total: number } };
+
+/** Lines that are receipts and payment vouchers, not invoices (PV-, OR-, TOR...). They are not loaded; Finance posts payments through the daily payment files. */
+export const isPaymentDoc = (doc: string) => /^(PV|OR|TOR)/i.test(doc.trim());
+/** SAP writes invoice numbers as "101S159525"; the app keeps "S159525". */
+export const cleanDoc = (doc: string) => doc.replace(/^101(?=S)/i, "");
+/** The newer aging export writes the salesman as MY01S00007; the app keeps the number, 7. */
+export const cleanAgent = (agent: string) => { const m = /^MY01S0*(\d+)$/i.exec(agent); return m ? String(Number(m[1])) : agent; };
 
 export function parseAging(rows: Row[]): Aging {
   const hi = rows.findIndex((r) => txt(r[0]).toLowerCase() === "doc no");
   const invoices: AgingInvoice[] = [];
+  const leftOut = { count: 0, total: 0 };
   const side: { label: string; total: number }[] = [];
   let grand: number | undefined;
   for (const r of rows.slice(hi + 1)) {
     const doc = txt(r[0]);
-    if (doc && has(r[2])) {
-      invoices.push({ doc, date: isoDate(r[1]), custCode: txt(r[2]), customer: txt(r[3]), terms: num(r[4]), due: isoDate(r[5]), agent: txt(r[6]), amount: num(r[7]), age: num(r[8]), outstanding: num(r[9]), note: txt(r[10]) });
+    if (doc && has(r[2]) && isPaymentDoc(doc)) {
+      leftOut.count++; leftOut.total = r2(leftOut.total + num(r[9]));
+    } else if (doc && has(r[2])) {
+      invoices.push({ doc: cleanDoc(doc), date: isoDate(r[1]), custCode: txt(r[2]), customer: txt(r[3]), terms: num(r[4]), due: isoDate(r[5]), agent: cleanAgent(txt(r[6])), amount: num(r[7]), age: num(r[8]), outstanding: num(r[9]), note: txt(r[10]) });
+    } else if (!doc && !has(r[2]) && !txt(r[6]) && has(r[9])) {
+      grand = num(r[9]); // the newer export prints the grand total on a row with no label
     } else if (!doc && /total$/i.test(txt(r[6])) && has(r[9])) {
       const label = txt(r[6]);
       if (/^grand total$/i.test(label)) grand = num(r[9]);
       else if (!/^\d+ total$/i.test(label)) side.push({ label, total: num(r[9]) }); // a separate group total (for example a special customer group) sits outside the grand total
     }
   }
-  return { invoices, fileGrandTotal: grand, fileSideTotals: side, sum: r2(invoices.reduce((s, i) => s + i.outstanding, 0)) };
+  return { invoices, fileGrandTotal: grand, fileSideTotals: side, sum: r2(invoices.reduce((s, i) => s + i.outstanding, 0)), leftOut };
 }
 
 /** The date the aging report is for: due date plus how many days late each invoice is, taking the most common answer. */
@@ -173,7 +185,8 @@ export function crossChecks(d: { aging?: Aging; coverage?: Coverage; products?: 
   const { aging, coverage, products, customers } = d;
   if (aging) {
     const filed = (aging.fileGrandTotal ?? 0) + aging.fileSideTotals.reduce((s, t) => s + t.total, 0);
-    out.push({ ok: close(aging.sum, filed), title: "Aging adds up", detail: `The ${aging.invoices.length.toLocaleString()} open invoices total ${rm(aging.sum)}. The report's own totals (grand total plus ${aging.fileSideTotals.map((t) => t.label).join(", ") || "no separate groups"}) give ${rm(filed)}.` });
+    const withLeftOut = aging.sum + aging.leftOut.total;
+    out.push({ ok: close(withLeftOut, filed), title: "Aging adds up", detail: `The ${aging.invoices.length.toLocaleString()} open invoices total ${rm(aging.sum)}${aging.leftOut.count ? `, and the ${aging.leftOut.count} PV, OR and TOR lines left out total ${rm(aging.leftOut.total)}, together ${rm(withLeftOut)}` : ""}. The report's own totals (grand total plus ${aging.fileSideTotals.map((t) => t.label).join(", ") || "no separate groups"}) give ${rm(filed)}.` });
   }
   if (products && coverage?.total) {
     const nov = coverage.total.sales[10] ?? 0;

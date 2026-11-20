@@ -15,7 +15,7 @@ export default function Sales() {
   const chart = list.map((s) => ({ name: s.name.split(" ")[0], "RL Acct": s.stats[mi].rl, "Active Acct": s.stats[mi].active }));
   return (
     <>
-      <PageHeader title="Sales & KPI" sub="Sales achievement against target, and customer coverage (RL Acct / Active Acct / ERC). From your coverage and net sales report, January to November (November is month to date and is compared with its target to date)."
+      <PageHeader title="Sales & KPI" sub="Sales achievement against target, and customer coverage (RL Acct / Active Acct / ERC). From your coverage and net sales report, January to November. November is month to date: net sales so far are compared with the full month's target, as in the report."
         right={<select className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm" value={mi} onChange={(e) => setMi(Number(e.target.value))} aria-label="Month">{MONTHS.map((m, i) => <option key={m} value={i}>{i === NOV ? "Nov (MTD)" : `${m} 2026`}</option>)}</select>} />
       <Card title={`KPI check · ${MONTHS[mi]}`} className="mb-4">
         <div className="overflow-x-auto">
@@ -25,12 +25,12 @@ export default function Sales() {
             </thead>
             <tbody>
               {[...list.map((s) => ({ name: s.name, st: s.stats[mi] })), ...(list.length > 1 ? [{ name: "Total", st: sumStats(list, mi) }] : [])].map((r) => {
-                const ach = r.st.target ? Math.round((r.st.sales / r.st.target) * 1000) / 10 : 0;
+                const ach = r.st.monthTarget ? Math.round((r.st.sales / r.st.monthTarget) * 1000) / 10 : 0;
                 const erc = r.st.rl ? Math.round((r.st.active / r.st.rl) * 1000) / 10 : 0;
                 return (
                   <tr key={r.name} className={`border-b border-slate-100 ${r.name === "Total" ? "font-semibold" : ""}`}>
                     <Td first>{r.name}</Td>
-                    <Td right>{rm(r.st.target)}</Td>
+                    <Td right>{rm(r.st.monthTarget)}</Td>
                     <Td right>{rm(r.st.sales)}</Td>
                     <Td right><Badge tone={ach >= 100 ? "green" : ach >= 80 ? "amber" : "red"}>{ach}%</Badge></Td>
                     <Td right>{r.st.active} of {r.st.rl}</Td>
@@ -59,7 +59,7 @@ export default function Sales() {
           </div>
         </Card>
         <Card title={`Sales performance · ${MONTHS[mi]}`}>
-          <SalesPerformance rows={list.map((x) => ({ name: x.name, sales: x.stats[mi].sales, target: x.stats[mi].target }))} />
+          <SalesPerformance rows={list.map((x) => ({ name: x.name, sales: x.stats[mi].sales, target: x.stats[mi].monthTarget }))} />
         </Card>
       </div>
 

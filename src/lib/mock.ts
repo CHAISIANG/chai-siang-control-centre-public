@@ -25,7 +25,8 @@ export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "
 /** Jan–Oct come from the database (DA1). Nov is month-to-date and still sample. */
 export const NOV = 10;
 
-export type MonthStat = { rl: number; active: number; erc: number; target: number; sales: number; collected: number };
+/** target is November pro-rated to the days so far (the dashboard compares against it); monthTarget is the whole month, as in the coverage file. */
+export type MonthStat = { rl: number; active: number; erc: number; target: number; monthTarget: number; sales: number; collected: number };
 export type Salesman = { code: string; name: string; area: string; stats: MonthStat[] };
 
 export type SalesmanRow = { code: string; name: string; area: string | null };
@@ -44,20 +45,21 @@ export function buildSalesmen(rows: SalesmanRow[], monthly: MonthlyRow[], day: n
         // (October's target stands in when November has none).
         const sales = Number(m?.net_sales ?? 0);
         let target = Number(m?.sales_target ?? 0);
-        if (i === NOV) target = Math.round((target || Number(oct?.sales_target ?? 0)) * prorate);
-        return { rl: m?.rl_acct ?? 0, active: m?.active_acct ?? 0, erc: Number(m?.erc ?? 0), target, sales, collected: 0 };
+        const monthTarget = i === NOV ? Math.round(target || Number(oct?.sales_target ?? 0)) : target;
+        if (i === NOV) target = Math.round(monthTarget * prorate);
+        return { rl: m?.rl_acct ?? 0, active: m?.active_acct ?? 0, erc: Number(m?.erc ?? 0), target, monthTarget, sales, collected: 0 };
       }
       const sales = Math.round(Number(oct?.net_sales ?? 0) * prorate * (0.8 + rnd() * 0.4));
       const rl = oct?.rl_acct ?? 0;
       const active = Math.round((oct?.active_acct ?? 0) * (0.55 + rnd() * 0.3));
-      return { rl, active, erc: rl ? Math.round((active / rl) * 10000) / 100 : 0, target: Math.round(Number(oct?.sales_target ?? 0) * prorate), sales, collected: 0 };
+      return { rl, active, erc: rl ? Math.round((active / rl) * 10000) / 100 : 0, target: Math.round(Number(oct?.sales_target ?? 0) * prorate), monthTarget: Math.round(Number(oct?.sales_target ?? 0)), sales, collected: 0 };
     });
     return { code: s.code, name: s.name, area: s.area ?? "", stats };
   });
 }
 
 export const sumStats = (list: Salesman[], mi: number): MonthStat => {
-  const t = list.reduce((a, s) => ({ rl: a.rl + s.stats[mi].rl, active: a.active + s.stats[mi].active, erc: 0, target: a.target + s.stats[mi].target, sales: a.sales + s.stats[mi].sales, collected: a.collected + s.stats[mi].collected }), { rl: 0, active: 0, erc: 0, target: 0, sales: 0, collected: 0 });
+  const t = list.reduce((a, s) => ({ rl: a.rl + s.stats[mi].rl, active: a.active + s.stats[mi].active, erc: 0, target: a.target + s.stats[mi].target, monthTarget: a.monthTarget + s.stats[mi].monthTarget, sales: a.sales + s.stats[mi].sales, collected: a.collected + s.stats[mi].collected }), { rl: 0, active: 0, erc: 0, target: 0, monthTarget: 0, sales: 0, collected: 0 });
   t.erc = t.rl ? Math.round((t.active / t.rl) * 1000) / 10 : 0;
   return t;
 };

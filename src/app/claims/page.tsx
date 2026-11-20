@@ -2,6 +2,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, FileText, ImagePlus, Paperclip, Plus, Printer, Trash2, UploadCloud, X } from "lucide-react";
 import { useRole } from "@/components/role";
+import { useAuth } from "@/components/auth";
+import { SignCard, useCustomerSign } from "@/components/paf/CustomerSign";
+import { DEFAULT_PLACEMENT, fixPlacement } from "@/lib/paf/stamp";
 import { useData, type ClaimFile } from "@/components/data";
 import PafFill from "@/components/PafFill";
 import PafSheet, { toDisplayDate } from "@/components/PafSheet";
@@ -107,6 +110,7 @@ export default function Claims() {
 
 function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null; files: ClaimFile[]; onClose: () => void; onChanged: () => Promise<void> }) {
   const { can, role, salesmanCode: mySalesman } = useRole();
+  const { profile } = useAuth();
   const { customers, salesmen } = useData();
   const seesAll = can("view_all_data");
   const isNew = claim === null;
@@ -163,6 +167,10 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
     return v;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [values, customer, custNameCell, approvedByColgate, claim?.principalName, claim?.principalOn]);
+  // The customer's chop and signature. A claim made after this rule cannot go on without them.
+  const needsSign = isNew || claim?.signRequired !== false;
+  const savedSign = claim?.sign ? { customerCode: claim.customerCode ?? "", signaturePath: claim.sign.signaturePath, chopPath: claim.sign.chopPath, placement: fixPlacement({ ...DEFAULT_PLACEMENT, ...claim.sign.placement }), signerName: claim.sign.signerName, signedAt: claim.sign.signedAt, by: claim.sign.by } : null;
+  const csign = useCustomerSign({ customerCode: customerCode ?? "", values: shownValues, dateCell: sigCells.date[0], onDate: (iso) => setValue(sigCells.date[0], toDisplayDate(iso)), by: profile?.full_name ?? "Salesman", saved: savedSign, useLibrary: editable });
   const total = lastNum(values.H37);
   // A claim can only be for a customer appointed to the salesman. The list is theirs alone, and typing a name that is not on it is not accepted.
   const myCustomers = useMemo(() => customers.filter((c) => !!salesmanCode && c.salesman === salesmanCode), [customers, salesmanCode]);
@@ -175,6 +183,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
     { ok: !!values.I7 && !!values.O7, text: "Start and end dates filled in" },
     { ok: ticked, text: "At least one box ticked (RE type, category or promotion type)" },
     { ok: hasLine, text: "At least one line with a description or an amount" },
+    ...(needsSign ? [{ ok: csign.signed, text: "Customer chop and signature" }] : []),
     ...(def.photoBox ? [{ ok: photos.length > 0, text: "A photo of the display is attached" }] : []),
   ];
   const custLabel = (c: { name: string; code: string }) => `${c.name} (${c.code})`;
@@ -275,6 +284,9 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
           if (ins.error) throw ins.error;
         }
       }
+      // A new customer signature goes onto the claim now that the claim exists and holds the final values.
+      const signProblem = await csign.commit(id);
+      if (signProblem) throw new Error(`The customer's signature could not be saved: ${signProblem}`);
       if (submit) {
         // Files are attached first; then the claim goes to the supervisor.
         const fin = await supabase.rpc("claim_action", { p_id: id, p_action: "submit" });
@@ -328,7 +340,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
             {editable && (
               <>
                 <button disabled={busy || !customerOk} onClick={() => void save(false)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">{isNew || status === "Draft" ? "Save draft" : "Save changes"}</button>
-                {canSubmit && <button disabled={busy || !customerOk} onClick={() => void save(true)} className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40">{busy ? "Saving…" : "Submit to supervisor"}</button>}
+                {canSubmit && <button disabled={busy || !customerOk || (needsSign && !csign.signed)} title={needsSign && !csign.signed ? "The customer must sign first" : undefined} onClick={() => void save(true)} className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40">{busy ? "Saving…" : "Submit to supervisor"}</button>}
               </>
             )}
             {canPullBack && <button disabled={busy} onClick={() => void decide("pull_back")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">Pull back to draft</button>}
@@ -416,6 +428,13 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
             )}
             {editable && <PafFill key={def.key} def={def} values={shownValues} onChange={setValue} followCustomer />}
 
+            {editable ? <SignCard s={csign} customerName={customer} locked={!editable} /> : (
+              <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                <div className="mb-1 font-semibold text-slate-800">Customer chop and signature</div>
+                {claim?.sign ? <p className="text-emerald-800">Signed by <b>{claim.sign.signerName}</b> on {claim.sign.signedAt}, on {claim.sign.by}&apos;s phone.</p> : <p className="text-slate-600">{claim && claim.signRequired === false ? "Chopped and signed on paper before this step was added." : "Not signed."}</p>}
+              </div>
+            )}
+
             <div className="rounded-lg border border-slate-200 bg-white p-3">
               <div className="mb-2 text-sm font-semibold text-slate-700">Remark / description</div>
               <textarea value={remark} disabled={!editable} onChange={(e) => setRemark(e.target.value)} rows={3} placeholder="e.g. Display set up as per agreed plan, photos taken 26 Jan." className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-50" />
@@ -471,7 +490,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
             </div>
             {editing && <p className="no-print mb-2 rounded bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800">Type directly into the highlighted cells and click the boxes to tick them. The panel on the left updates too.</p>}
             <div id="paf-print">
-              <PafSheet def={def} values={shownValues} followCustomer editing={editing && editable} onChange={setValue} photos={photos.map((p) => p.url).filter((u): u is string => !!u)} />
+              <PafSheet def={def} values={shownValues} sign={csign.overlay} followCustomer editing={editing && editable} onChange={setValue} photos={photos.map((p) => p.url).filter((u): u is string => !!u)} />
               <section className="paf-extra mt-6">
                 <h3 className="text-sm font-semibold text-slate-800">{claim?.id ?? "New claim"} · {customer}</h3>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{remark ? `Remark: ${remark}` : "Remark: –"}</p>

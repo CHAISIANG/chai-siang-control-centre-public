@@ -34,6 +34,8 @@ type ClaimRow = {
   status: ClaimStatus; remark: string | null; form_values: Record<string, string>; submitted_on: string | null;
   salesman_name: string | null; principal_name: string | null; principal_on: string | null;
   claim_files: { id: number; kind: "photo" | "document"; file_name: string; storage_path: string | null }[];
+  sign_required: boolean | null; sign_signature_path: string | null; sign_chop_path: string | null; sign_chop_placement: Record<string, number> | null;
+  signer_name: string | null; signed_at: string | null; signed_by_name: string | null;
 };
 type LorryRow = { lorry_no: string; driver: string | null; route: string | null; status: Lorry["status"]; invoices: number; load_pct: number };
 
@@ -101,6 +103,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       salesman: c.salesman_code ? nameOf.get(c.salesman_code) ?? c.salesman_name ?? c.salesman_code : "—", salesmanCode: c.salesman_code,
       amount: Number(c.amount), status: c.status, submitted: fmtDay(c.submitted_on), attachments: c.claim_files.length,
       remark: c.remark ?? "", principalName: c.principal_name ?? "", principalOn: c.principal_on ?? "", values: c.form_values ?? {},
+      signRequired: c.sign_required !== false,
+      sign: c.signed_at && c.sign_signature_path && c.sign_chop_path ? { signaturePath: c.sign_signature_path, chopPath: c.sign_chop_path, placement: c.sign_chop_placement ?? {}, signerName: c.signer_name ?? "", signedAt: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(c.signed_at)).replace(",", ""), by: c.signed_by_name ?? "" } : null,
     }));
     const claimFiles: ClaimFile[] = state.claimRows.flatMap((c) => c.claim_files.map((f) => ({ id: f.id, claimId: c.id, kind: f.kind, name: f.file_name, path: f.storage_path })));
     return {

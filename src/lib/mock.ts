@@ -142,6 +142,10 @@ export type Claim = {
   principalName: string;
   principalOn: string;
   values: Record<string, string>;
+  /** whether the customer's chop and signature are needed before the claim goes on (claims already sent on before the rule are not) */
+  signRequired: boolean;
+  /** the customer's signature, if the customer has signed; the files are in the claim-files bucket */
+  sign: { signaturePath: string; chopPath: string; placement: Record<string, number>; signerName: string; signedAt: string; by: string } | null;
 };
 
 // ---- Upload centre ----

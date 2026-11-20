@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { addr, checkboxCells, colLetter, colNum, getDistributorRep, parseAddr, signatureCells, type FormDef, type Style, type Values } from "@/lib/paf";
+import { SignOverlay, type SignOverlayData } from "@/components/paf/CustomerSign";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 export const toDisplayDate = (iso: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso); return m ? `${m[3]}-${MONTHS[Number(m[2]) - 1]}-${m[1]}` : iso; };
@@ -47,6 +48,8 @@ const needed = (lines: number, px: number) => Math.ceil(lines * px * 1.22 + 6);
 type Props = {
   def: FormDef;
   values: Values;
+  /** the customer's signature and chop, shown in the customer's signing spot */
+  sign?: SignOverlayData;
   editing?: boolean;
   onChange?: (a: string, v: string) => void;
   photos?: string[];
@@ -54,7 +57,7 @@ type Props = {
   followCustomer?: boolean;
 };
 
-export default function PafSheet({ def, values, editing = false, onChange, photos = [], followCustomer = false }: Props) {
+export default function PafSheet({ def, values, editing = false, onChange, photos = [], followCustomer = false, sign }: Props) {
   const { layout } = def;
   const wrap = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
@@ -172,6 +175,13 @@ export default function PafSheet({ def, values, editing = false, onChange, photo
     return { x: xs[p.col - 1], y: ys[p.row - 1], w: xs[q.col] - xs[p.col - 1], h: ys[q.row] - ys[p.row - 1] };
   }, [def, xs, ys]);
 
+  // The customer's signing spot: the rows above the customer's "Name:" line, from column C to G.
+  const signRect = useMemo(() => {
+    const nameRow = parseAddr(sig.name[0]).row;
+    const x = xs[colNum("C") - 1], y = ys[Math.max(1, nameRow - 4) - 1];
+    return { x, y, w: xs[colNum("H") - 1] - x, h: ys[nameRow - 1] - y };
+  }, [sig, xs, ys]);
+
   const nodes: React.ReactNode[] = [];
   for (const [a, c] of Object.entries(layout.cells)) {
     if (merges.covered.has(a)) continue;
@@ -244,6 +254,11 @@ export default function PafSheet({ def, values, editing = false, onChange, photo
     <div ref={wrap} style={{ width: "100%", height: H * scale }} className="paf-wrap">
       <div ref={inner} id="paf-sheet" style={{ position: "relative", width: W, height: H, transform: `scale(${scale})`, transformOrigin: "top left", background: "#fff" }}>
         {nodes}
+        {sign && (sign.signature || sign.chop) && (
+          <div style={{ position: "absolute", left: signRect.x, top: signRect.y, width: signRect.w, height: signRect.h, zIndex: 3, pointerEvents: "none" }}>
+            <SignOverlay data={sign} />
+          </div>
+        )}
         {photoRect && (
           <div style={{ position: "absolute", left: photoRect.x, top: photoRect.y, width: photoRect.w, height: photoRect.h, border: "1px solid #94a3b8", background: "#f8fafc", overflow: "hidden", zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center" }}>
             {photos.length ? (

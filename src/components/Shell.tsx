@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall, Home, Clock, CalendarPlus, History, CalendarDays, CheckSquare, UsersRound, IdCard, CalendarHeart, BarChart3, SlidersHorizontal, ReceiptText, ClipboardCheck as ClaimCheck, Banknote, PieChart, Settings2 } from "lucide-react";
+import { BookOpen, LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall, Home, Clock, CalendarPlus, History, CalendarDays, CheckSquare, UsersRound, IdCard, CalendarHeart, BarChart3, SlidersHorizontal, ReceiptText, ClipboardCheck as ClaimCheck, Banknote, PieChart, Settings2 } from "lucide-react";
 import { RoleProvider, useRole } from "./role";
 import { AuthProvider, useAuth } from "./auth";
 import { DataProvider, useData } from "./data";
@@ -17,6 +17,7 @@ const NAV: Nav[] = [
   { href: "/my-orders", label: "My PO orders", icon: ClipboardList, perm: "page_po_mine", group: "Sales" },
   { href: "/distributors", label: "Distributor orders", icon: PackageCheck, perm: "page_portal", group: "Sales" },
   { href: "/logistics", label: "Logistics", icon: Truck, perm: "page_logistics", group: "Operations" },
+  { href: "/logistics/sop", label: "Warehouse SOP", icon: BookOpen, perm: "page_logistics", group: "Operations" },
   { href: "/upload", label: "Data upload", icon: Upload, perm: "page_upload", group: "Data" },
   { href: "/master", label: "Master data", icon: Database, perm: "page_master", group: "Data" },
   { href: "/test-run", label: "Real data test run", icon: FileSpreadsheet, perm: "page_upload", group: "Data" },

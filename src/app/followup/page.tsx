@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Card, Kpi, KpiStrip, PageHeader, Td, Th } from "@/components/ui";
 import { OverdueVsOwed } from "@/components/charts";
@@ -208,7 +209,7 @@ export default function FollowUp() {
                   return (
                     <div key={r.inv.doc_no} className="rounded-lg border border-slate-200 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div><b className="text-slate-900">{r.inv.doc_no}</b> <span className="text-sm text-slate-500">due {shortDate(r.inv.due_date)}</span></div>
+                        <div><Link href={`/tracker?q=${encodeURIComponent(r.inv.doc_no)}`} className="font-bold text-indigo-700 hover:underline" title="Track this invoice and open its delivery proof">{r.inv.doc_no}</Link> <span className="text-sm text-slate-500">due {shortDate(r.inv.due_date)}</span></div>
                         <div className="text-right text-sm"><b className="tabular-nums text-slate-900">{money(r.amount)}</b> <Badge tone={r.age > 60 ? "red" : "amber"}>{r.age} days late</Badge></div>
                       </div>
                       <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">

@@ -243,7 +243,7 @@ export default function Invoices() {
                   const d = daysLate(i), b = bucketOf(d);
                   return (
                     <tr key={i.doc} className="border-b border-slate-100 hover:bg-slate-50">
-                      <Td first className="whitespace-nowrap font-medium text-slate-900">{i.doc}</Td>
+                      <Td first className="whitespace-nowrap font-medium"><Link href={`/tracker?q=${encodeURIComponent(i.doc)}`} className="text-indigo-700 hover:underline" title="Track this invoice and open its delivery proof">{i.doc}</Link></Td>
                       <Td>{i.customer}<div className="text-xs text-slate-500">{i.cust}</div></Td>
                       <Td>{name(salesmanCode(i.agent))}</Td>
                       <Td className="whitespace-nowrap">{day(i.docDate)}</Td>

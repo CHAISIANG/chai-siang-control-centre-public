@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { BookOpen, ChevronDown, LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall, Home, Clock, CalendarPlus, History, CalendarDays, CheckSquare, UsersRound, IdCard, CalendarHeart, BarChart3, SlidersHorizontal, ReceiptText, ClipboardCheck as ClaimCheck, Banknote, PieChart, Settings2 } from "lucide-react";
+import { BookOpen, ChevronDown, FileSearch, Workflow, LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall, Home, Clock, CalendarPlus, History, CalendarDays, CheckSquare, UsersRound, IdCard, CalendarHeart, BarChart3, SlidersHorizontal, ReceiptText, ClipboardCheck as ClaimCheck, Banknote, PieChart, Settings2 } from "lucide-react";
 import { RoleProvider, useRole } from "./role";
 import { AuthProvider, useAuth } from "./auth";
 import { DataProvider, useData } from "./data";
@@ -10,6 +10,8 @@ import { DataProvider, useData } from "./data";
 type Nav = { href: string; label: string; icon: typeof Users; perm: string; group?: string };
 const NAV: Nav[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard, perm: "page_dashboard", group: "Overview" },
+  { href: "/tracker", label: "Invoice tracker", icon: FileSearch, perm: "page_logistics|page_finance|page_customers", group: "Overview" },
+  { href: "/workflow", label: "Invoice workflow", icon: Workflow, perm: "page_logistics|page_finance|page_customers", group: "Overview" },
   { href: "/sales", label: "Sales & KPI", icon: TrendingUp, perm: "page_sales", group: "Sales" },
   { href: "/customers", label: "Customers & Credit", icon: Users, perm: "page_customers", group: "Sales" },
   { href: "/followup", label: "Collection follow-up", icon: PhoneCall, perm: "page_customers", group: "Sales" },
@@ -82,7 +84,7 @@ function Inner({ children }: { children: ReactNode }) {
     try { localStorage.setItem("cssb-theme", next ? "dark" : "light"); } catch {}
   };
   const items = [
-    ...NAV.filter((n) => can(n.perm)),
+    ...NAV.filter((n) => n.perm.split("|").some((p) => can(p))),
     ...ADMIN_NAV.filter((n) => realCan(n.perm)),
     { href: "/account", label: "My account", icon: KeyRound, perm: "" },
   ];

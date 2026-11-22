@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { BookOpen, ChevronDown, FileSearch, Workflow, LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall, Home, Clock, CalendarPlus, History, CalendarDays, CheckSquare, UsersRound, IdCard, CalendarHeart, BarChart3, SlidersHorizontal, ReceiptText, ClipboardCheck as ClaimCheck, Banknote, PieChart, Settings2 } from "lucide-react";
+import { BookOpen, ChevronDown, FileSearch, Workflow, LayoutDashboard, TrendingUp, Users, Truck, FileText, Upload, Menu, X, Moon, Sun, LogOut, UserCog, ShieldCheck, KeyRound, Wallet, Receipt, Building2, Settings, HandCoins, PackageCheck, ClipboardCheck, ClipboardList, FileSpreadsheet, Database, PhoneCall, Home, Clock, CalendarPlus, History, CalendarDays, CheckSquare, UsersRound, IdCard, CalendarHeart, BarChart3, SlidersHorizontal, ReceiptText, ClipboardCheck as ClaimCheck, Banknote, PieChart, Settings2, MapPinCheck, QrCode } from "lucide-react";
 import { RoleProvider, useRole } from "./role";
 import { AuthProvider, useAuth } from "./auth";
 import { DataProvider, useData } from "./data";
@@ -49,6 +49,8 @@ const HR_NAV: Nav[] = [
   { href: "/hr/team", label: "Team overview", icon: UsersRound, perm: "hr_approve", group: "HR management" },
   { href: "/hr/admin/employees", label: "Employees", icon: IdCard, perm: "hr_admin", group: "HR management" },
   { href: "/hr/admin/holidays", label: "Public holidays", icon: CalendarHeart, perm: "hr_admin", group: "HR management" },
+  { href: "/hr/admin/clock-checks", label: "Clock-in checks", icon: MapPinCheck, perm: "hr_admin", group: "HR management" },
+  { href: "/hr/office-qr", label: "Office clock-in screen", icon: QrCode, perm: "hr_admin|hr_office_screen", group: "HR management" },
   { href: "/hr/admin/reports", label: "HR reports", icon: BarChart3, perm: "hr_admin", group: "HR management" },
   { href: "/hr/admin/settings", label: "HR settings", icon: SlidersHorizontal, perm: "hr_admin", group: "HR management" },
   { href: "/hr/claims/approvals", label: "Claim approvals", icon: ClaimCheck, perm: "hr_approve|exp_finance|exp_director", group: "HR management" },

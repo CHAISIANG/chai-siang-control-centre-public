@@ -41,14 +41,21 @@ export default function HrSettings() {
         </fieldset>
       </Card>
 
-      <Card className="mt-4" title="Clock-in location (GPS)">
-        <label className="flex items-center gap-2 text-slate-800"><input type="checkbox" checked={s.gpsRequired} onChange={(e) => set("gpsRequired", e.target.checked)} className="h-4 w-4" /> Staff must be near the office to clock in</label>
+      <Card className="mt-4" title="How clock-in is checked">
+        <p className="text-sm text-slate-500">Set each person as office or field staff on the Employees page.</p>
+        <h3 className="mt-3 font-medium text-slate-900">Office and warehouse staff</h3>
+        <label className="mt-2 flex items-center gap-2 text-slate-800"><input type="checkbox" checked={s.qrRequired} onChange={(e) => set("qrRequired", e.target.checked)} className="h-4 w-4" /> Must scan the code on the office screen to clock in</label>
+        <label className={`ml-6 mt-2 block max-w-xs ${lbl} ${s.qrRequired ? "" : "opacity-50"}`}>Code changes every<select value={s.qrSeconds} disabled={!s.qrRequired} onChange={(e) => set("qrSeconds", Number(e.target.value))} className={field}><option value={30}>30 seconds</option><option value={60}>1 minute</option><option value={120}>2 minutes</option></select></label>
+        <label className="mt-3 flex items-center gap-2 text-slate-800"><input type="checkbox" checked={s.gpsRequired} onChange={(e) => set("gpsRequired", e.target.checked)} className="h-4 w-4" /> Must be near the office to clock in</label>
         <div className={`mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3 ${s.gpsRequired ? "" : "opacity-50"}`}>
           <label className={lbl}>Allowed distance (metres)<input type="number" min={50} step={50} value={s.gpsRadiusM} disabled={!s.gpsRequired} onChange={(e) => set("gpsRadiusM", Number(e.target.value))} className={field} /></label>
           <label className={lbl}>Office latitude<input value={s.officeLat} disabled={!s.gpsRequired} onChange={(e) => set("officeLat", Number(e.target.value))} className={field} /></label>
           <label className={lbl}>Office longitude<input value={s.officeLng} disabled={!s.gpsRequired} onChange={(e) => set("officeLng", Number(e.target.value))} className={field} /></label>
         </div>
-        <p className="mt-2 text-sm text-slate-500">When this is off, the location is still recorded if the phone shares it, but nobody is blocked.</p>
+        <p className="mt-2 text-sm text-slate-500">When this is off, the location is still recorded and anyone far from the office shows in Clock-in checks. Clocking out is never blocked; it is checked the same way and flagged.</p>
+        <h3 className="mt-4 font-medium text-slate-900">Field staff (sales, drivers)</h3>
+        <label className="mt-2 flex items-center gap-2 text-slate-800"><input type="checkbox" checked={s.fieldSelfie} onChange={(e) => set("fieldSelfie", e.target.checked)} className="h-4 w-4" /> Take a selfie to clock in</label>
+        <p className="mt-2 text-sm text-slate-500">Field staff are never blocked by distance. Their location is recorded at clock-in and clock-out, and a missing or weak location shows in Clock-in checks.</p>
       </Card>
 
       <Card className="mt-4" title="Leave">

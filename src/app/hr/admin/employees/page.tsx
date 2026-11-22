@@ -3,14 +3,14 @@ import { useState } from "react";
 import { CalendarClock, Plus, Search, SlidersHorizontal, UserPen } from "lucide-react";
 import { Card, Td, Th } from "@/components/ui";
 import { Modal, btnBlue, btnLine, dayTxt, field } from "@/components/hr/ui";
-import { fmtDate, fmtHM, hm, LEAVE_TYPES, serviceBand, yearsOfService, type LeaveType } from "@/lib/hr/rules";
+import { fmtDate, fmtHM, hm, LEAVE_TYPES, serviceBand, WORK_TYPES, yearsOfService, type LeaveType, type WorkType } from "@/lib/hr/rules";
 import { TODAY, YEAR, type Employee } from "@/lib/hr/sample";
 import { balance, carryInto, findEmp, yearEndCarry } from "@/lib/hr/calc";
 import { useHr } from "@/lib/hr/store";
 import { StaffImport } from "@/components/hr/StaffImport";
 
 const STATES = ["Selangor", "Kuala Lumpur", "Putrajaya", "Johor", "Kedah", "Kelantan", "Melaka", "Negeri Sembilan", "Pahang", "Perak", "Perlis", "Pulau Pinang", "Sabah", "Sarawak", "Terengganu", "Labuan"];
-const blank = (code: string): Employee => ({ id: "", code, name: "", position: "", dept: "", gender: "F", state: "Selangor", joined: TODAY, managerId: null, role: "employee", email: "", phone: "", active: true });
+const blank = (code: string): Employee => ({ id: "", code, name: "", position: "", dept: "", gender: "F", state: "Selangor", joined: TODAY, managerId: null, role: "employee", email: "", phone: "", active: true, workType: "office" });
 const n1 = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
 export default function Employees() {
@@ -51,7 +51,7 @@ export default function Employees() {
                 const al = balance(data, e, "AL"), sl = balance(data, e, "SL");
                 return (
                   <tr key={e.id} className={`border-b border-slate-100 ${e.active ? "" : "opacity-50"}`}>
-                    <Td first><div className="font-medium text-slate-900">{e.name}</div><div className="text-sm text-slate-500">{e.code} · {e.position}</div></Td>
+                    <Td first><div className="font-medium text-slate-900">{e.name}</div><div className="text-sm text-slate-500">{e.code} · {e.position}{e.workType === "field" ? " · field staff" : ""}</div></Td>
                     <Td>{e.dept}<div className="text-sm text-slate-500">{e.state}</div></Td>
                     <Td className="whitespace-nowrap">{fmtDate(e.joined)}<div className="text-sm text-slate-500">{yearsOfService(e.joined, TODAY)} yrs · {serviceBand(e.joined, YEAR).toLowerCase()}</div></Td>
                     <Td>{findEmp(data, e.managerId)?.name.split(" ")[0] ?? "–"}</Td>
@@ -127,6 +127,7 @@ function EditEmployee({ e, onClose, onDone }: { e: Employee; onClose: () => void
         <label>Gender<select value={f.gender} onChange={(x) => set("gender", x.target.value as "F" | "M")} className={field}><option value="F">Female</option><option value="M">Male</option></select></label>
         <label>State (for holidays)<select value={f.state} onChange={(x) => set("state", x.target.value)} className={field}>{STATES.map((s) => <option key={s}>{s}</option>)}</select></label>
         <label>Direct manager<select value={f.managerId ?? ""} onChange={(x) => set("managerId", x.target.value || null)} className={field}><option value="">None (HR approves)</option>{data.employees.filter((y) => y.id !== f.id && y.active && y.role !== "employee").map((y) => <option key={y.id} value={y.id}>{y.name}</option>)}</select></label>
+        <label>Clocks in<select value={f.workType ?? "office"} onChange={(x) => set("workType", x.target.value as WorkType)} className={field}>{WORK_TYPES.map((w) => <option key={w.code} value={w.code}>{w.name}</option>)}</select></label>
         <label>Access<select value={f.role} onChange={(x) => set("role", x.target.value as Employee["role"])} className={field}><option value="employee">Employee</option><option value="manager">Manager</option><option value="hr">HR admin</option></select></label>
         <label>Email (login)<input type="email" value={f.email} onChange={(x) => set("email", x.target.value)} className={field} /></label>
         <label>Phone<input value={f.phone} onChange={(x) => set("phone", x.target.value)} className={field} /></label>

@@ -17,13 +17,16 @@ export type Settings = {
   workStart: string; workEnd: string; lunchStart: string; lunchEnd: string;
   lateAfterMin: number;            // late if clocked in more than this many minutes after start
   gpsRequired: boolean; gpsRadiusM: number; officeLat: number; officeLng: number;
+  qrRequired: boolean;             // office staff must scan the code on the office screen to clock in
+  qrSeconds: number;               // how often that code changes
+  fieldSelfie: boolean;            // field staff take a photo of themselves to clock in
   carryMaxDays: number; carryExpiry: string; // "MM-DD": carried-over annual leave must be used by this date
   otWeekday: number; otRestDay: number; otPublicHoliday: number;
   restDays: number[];              // 0 = Sunday ... 6 = Saturday
 };
 export const DEFAULT_SETTINGS: Settings = {
   workStart: "09:00", workEnd: "18:00", lunchStart: "13:00", lunchEnd: "14:00", lateAfterMin: 15,
-  gpsRequired: false, gpsRadiusM: 200, officeLat: 3.2389, officeLng: 101.6802,
+  gpsRequired: false, gpsRadiusM: 200, officeLat: 3.2389, officeLng: 101.6802, qrRequired: false, qrSeconds: 60, fieldSelfie: false,
   carryMaxDays: 5, carryExpiry: "03-31", otWeekday: 1.5, otRestDay: 2.0, otPublicHoliday: 3.0, restDays: [0, 6],
 };
 
@@ -115,3 +118,68 @@ export function metres(aLat: number, aLng: number, bLat: number, bLng: number) {
   const x = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * r) * Math.cos(bLat * r) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(x));
 }
+
+// ---------- clock-in checks ----------
+/** Office staff work at the office; field staff (salesmen, drivers) start wherever their day starts. */
+export type WorkType = "office" | "field";
+export const WORK_TYPES: { code: WorkType; name: string; how: string }[] = [
+  { code: "office", name: "Office or warehouse", how: "Clocks in at the office" },
+  { code: "field", name: "Field (sales, driver)", how: "Clocks in where the day starts" },
+];
+/** Something HR should look at. None of these stop the clock-in; the hard rules do that. */
+export type ClockFlag = "far_in" | "far_out" | "no_gps" | "weak_gps" | "late_photo";
+export const FLAG_TEXT: Record<ClockFlag, string> = {
+  far_in: "Clocked in away from the office",
+  far_out: "Clocked out away from the office",
+  no_gps: "Location not shared",
+  weak_gps: "Location was not precise",
+  late_photo: "No selfie",
+};
+/** A phone's reading of where it is. acc is how sure it is, in metres. */
+export type Fix = { lat: number; lng: number; acc: number };
+export const WEAK_GPS_M = 300;
+
+/**
+ * What happens when someone presses the clock button.
+ * block: the reason they cannot clock in yet (shown to them); flags: what HR sees afterwards.
+ */
+export function clockCheck(o: { type: WorkType; phase: "in" | "out"; s: Settings; fix: Fix | null; qrOk: boolean; selfie: boolean }): { block: string | null; flags: ClockFlag[]; dist: number | null } {
+  const { type, phase, s, fix, qrOk, selfie } = o;
+  const flags: ClockFlag[] = [];
+  const dist = fix ? metres(fix.lat, fix.lng, s.officeLat, s.officeLng) : null;
+  if (fix && fix.acc > WEAK_GPS_M) flags.push("weak_gps");
+  if (type === "field") {
+    if (phase === "in" && s.fieldSelfie && !selfie) return { block: "Take a selfie to clock in.", flags, dist };
+    if (!fix) flags.push("no_gps");
+    return { block: null, flags, dist };
+  }
+  const far = dist !== null && dist > s.gpsRadiusM;
+  if (phase === "in") {
+    if (s.qrRequired && !qrOk) return { block: "Scan the code on the office screen to clock in.", flags, dist };
+    if (s.gpsRequired && !fix) return { block: "Share your location to clock in.", flags, dist };
+    if (s.gpsRequired && far) return { block: `You are ${dist! >= 1000 ? `${(dist! / 1000).toFixed(1)} km` : `${Math.round(dist!)} m`} from the office. Clock in when you are there.`, flags, dist };
+    if (!fix) flags.push("no_gps"); else if (far) flags.push("far_in");
+  } else {
+    // clocking out is never blocked, so nobody is stuck at the end of the day
+    if (!fix) flags.push("no_gps"); else if (far) flags.push("far_out");
+  }
+  return { block: null, flags, dist };
+}
+
+/**
+ * The changing code on the office screen. It depends on the time slot and a secret, so a photo of it stops working
+ * after a minute or two. In the app the database makes and checks it; the sample uses a fixed secret.
+ */
+export function officeCode(slot: number, secret: string): string {
+  let h = 2166136261;
+  for (const ch of `${secret}:${slot}`) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
+  return String(h % 1000000).padStart(6, "0");
+}
+/** The sample office screen uses this secret; in the app the database holds the real one. */
+export const SAMPLE_OFFICE_SECRET = "sample-office";
+export const codeSlot = (seconds: number, at = Date.now()) => Math.floor(at / 1000 / Math.max(15, seconds));
+/** The code from this slot or the one before is accepted, so someone scanning just as it changes is not turned away. */
+export const codeValid = (code: string, seconds: number, secret: string, at = Date.now()) => {
+  const n = codeSlot(seconds, at);
+  return /^\d{6}$/.test(code) && (code === officeCode(n, secret) || code === officeCode(n - 1, secret));
+};

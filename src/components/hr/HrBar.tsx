@@ -5,9 +5,9 @@ import { usePathname } from "next/navigation";
 import { Bell, RotateCcw } from "lucide-react";
 import { useHr } from "@/lib/hr/store";
 import { fmtDate } from "@/lib/hr/rules";
-import type { Role } from "@/lib/hr/sample";
+import type { View } from "@/lib/hr/store";
 
-const ROLES: [Role, string][] = [["employee", "Employee"], ["manager", "Manager"], ["hr", "HR admin"]];
+const ROLES: [View, string][] = [["employee", "Employee"], ["field", "Field staff"], ["manager", "Manager"], ["hr", "HR admin"]];
 const SELF_PAGES = ["/hr", "/hr/clock", "/hr/leave", "/hr/leave/apply"];
 
 function Updates() {
@@ -35,7 +35,7 @@ function Updates() {
 
 /** Top of every HR screen. Sample mode: whose eyes you see it through, and a reset. Live mode: just the updates bell. */
 export function HrBar() {
-  const { live, role, setRole, me, reset, flash, error } = useHr();
+  const { live, view, setRole, me, reset, flash, error } = useHr();
   return (
     <>
       {live ? (
@@ -48,7 +48,7 @@ export function HrBar() {
           <span className="font-medium">Sample data</span>
           <span className="text-blue-800/80">Viewing as</span>
           <div className="inline-flex rounded-lg border border-blue-300 bg-white p-0.5" role="radiogroup" aria-label="Viewing as">
-            {ROLES.map(([k, l]) => <button key={k} role="radio" aria-checked={role === k} onClick={() => setRole(k)} className={`rounded-md px-2.5 py-1 ${role === k ? "bg-blue-500 text-white" : "text-slate-700 hover:bg-blue-50"}`}>{l}</button>)}
+            {ROLES.map(([k, l]) => <button key={k} role="radio" aria-checked={view === k} onClick={() => setRole(k)} className={`rounded-md px-2.5 py-1 ${view === k ? "bg-blue-500 text-white" : "text-slate-700 hover:bg-blue-50"}`}>{l}</button>)}
           </div>
           <span className="text-blue-800/80">({me.name.split(" ").slice(0, 2).join(" ")})</span>
           <span className="flex-1" />

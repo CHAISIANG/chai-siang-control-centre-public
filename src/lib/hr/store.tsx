@@ -2,21 +2,27 @@
 // One shared store for all HR screens, so an action on one screen shows on the others.
 // Live mode (inside the app) reads and writes the database; sample mode (the preview page) keeps made-up data in this browser.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { calendarDays, leaveDays, leaveName, nowMinutesMY, type Holiday, type LeaveType, type Settings } from "./rules";
+import { calendarDays, clockCheck, codeSlot, officeCode, SAMPLE_OFFICE_SECRET, leaveDays, leaveName, nowMinutesMY, type Fix, type Holiday, type LeaveType, type Settings } from "./rules";
 import { approverOf, balance, findEmp, holidaySetFor } from "./calc";
 import { useAuth } from "@/components/auth";
 import * as L from "./live";
-import { ME, TODAY, seedData, type Employee, type HrData, type LeaveRequest, type LeaveStatus, type Role } from "./sample";
+import { FIELD_ME, ME, TODAY, seedData, type Employee, type HrData, type LeaveRequest, type LeaveStatus, type Role } from "./sample";
 
-const KEY = "cssb.hr.sample.v2";
+const KEY = "cssb.hr.sample.v3";
 type Result = L.Result;
+
+/** What the clock button sends: where the phone is, whether the office code was scanned, and a selfie if taken. */
+export type ClockInput = { fix: Fix | null; qrOk: boolean; code?: string; selfie?: string };
+export type OfficeCode = { code: string; seconds: number; left: number } | { error: string };
+/** Whose eyes the sample is seen through; "field" is an employee who works outside the office. */
+export type View = Role | "field";
 
 export type NewLeave = { type: LeaveType; from: string; to: string; half: "" | "AM" | "PM"; reason: string; mcFile?: string; mc?: File | null };
 
 /** What every HR screen gets. Actions answer with a short message to show. */
 type Ctx = {
   data: HrData;
-  role: Role; setRole: (r: Role) => void;
+  role: Role; setRole: (r: View) => void; view: View;
   me: Employee;
   live: boolean;      // true: real data from the database
   linked: boolean;    // the signed-in login has an employee record
@@ -26,7 +32,9 @@ type Ctx = {
   applyLeave: (x: NewLeave) => Promise<Result>;
   cancelLeave: (id: string) => Promise<Result>;
   decide: (ids: string[], status: "Approved" | "Rejected", note?: string) => Promise<Result>;
-  clock: (lat?: number, lng?: number) => Promise<Result>;
+  clock: (x: ClockInput) => Promise<Result>;
+  reviewClock: (empId: string, date: string, ok: boolean, note: string) => Promise<Result>;
+  officeCode: () => Promise<OfficeCode>;
   saveEmployee: (e: Employee) => Promise<Result>;
   adjustLeave: (empId: string, type: LeaveType, days: number, reason: string) => Promise<Result>;
   setAttendance: (empId: string, date: string, inMin: number, outMin: number, note: string) => Promise<Result>;
@@ -42,12 +50,13 @@ type Ctx = {
 
 type SyncCtx = {
   data: HrData;
-  role: Role; setRole: (r: Role) => void;
+  role: Role; setRole: (r: View) => void; view: View;
   me: Employee;
   applyLeave: (x: NewLeave) => Result;
   cancelLeave: (id: string) => void;
   decide: (ids: string[], status: "Approved" | "Rejected", note?: string) => Result;
-  clock: (lat?: number, lng?: number) => Result;
+  clock: (x: ClockInput) => Result;
+  reviewClock: (empId: string, date: string, ok: boolean, note: string) => Result;
   saveEmployee: (e: Employee) => Result;
   adjustLeave: (empId: string, type: LeaveType, days: number, reason: string) => Result;
   setAttendance: (empId: string, date: string, inMin: number, outMin: number, note: string) => Result;
@@ -70,7 +79,8 @@ export function HrProvider({ children, live = false }: { children: ReactNode; li
 
 function SampleProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<HrData>(seedData);
-  const [role, setRoleState] = useState<Role>("employee");
+  const [view, setRoleState] = useState<View>("employee");
+  const role: Role = view === "field" ? "employee" : view;
   const [loaded, setLoaded] = useState(false);
 
   // pick up what was saved in this browser; a private window or blocked storage just starts from the sample
@@ -82,14 +92,14 @@ function SampleProvider({ children }: { children: ReactNode }) {
     } catch { /* ignore */ }
     setLoaded(true);
   }, []);
-  useEffect(() => { if (loaded) try { localStorage.setItem(KEY, JSON.stringify({ data, role })); } catch { /* ignore */ } }, [data, role, loaded]);
+  useEffect(() => { if (loaded) try { localStorage.setItem(KEY, JSON.stringify({ data, role: view })); } catch { /* ignore */ } }, [data, view, loaded]);
 
-  const me = findEmp(data, ME[role]) ?? data.employees[0];
+  const me = findEmp(data, view === "field" ? FIELD_ME : ME[role]) ?? data.employees[0];
   const update = useCallback((f: (d: HrData) => HrData) => setData((d) => f(structuredClone(d))), []);
   const note = (d: HrData, to: string | null, text: string, href: string) => { if (to) d.notes.unshift({ id: id(), to, text, at: TODAY, read: false, href }); };
 
   const ctx: SyncCtx = {
-    data, role, me,
+    data, role, me, view,
     setRole: (r) => setRoleState(r),
 
     applyLeave: (x) => {
@@ -127,18 +137,31 @@ function SampleProvider({ children }: { children: ReactNode }) {
       return { ok: true, text: `${mine.length} ${mine.length === 1 ? "request" : "requests"} ${status.toLowerCase()}.${status === "Rejected" ? " The days are back in their balance." : ""}` };
     },
 
-    clock: (lat, lng) => {
+    clock: ({ fix, qrOk, selfie }) => {
       const now = nowMinutesMY();
       const a = data.attendance.find((x) => x.empId === me.id && x.date === TODAY);
       if (a?.outMin != null) return { ok: false, text: "You have already clocked out today." };
+      const phase = a?.inMin != null ? "out" : "in";
+      if (phase === "out" && now <= a!.inMin!) return { ok: false, text: "Clock-out must be after clock-in." };
+      const c = clockCheck({ type: me.workType ?? "office", phase, s: data.settings, fix, qrOk, selfie: !!selfie });
+      if (c.block) return { ok: false, text: c.block };
       update((d) => {
-        const t = d.attendance.find((x) => x.empId === me.id && x.date === TODAY);
-        if (!t) d.attendance.push({ empId: me.id, date: TODAY, inMin: now, outMin: null, lat, lng, source: "app" });
-        else if (t.inMin == null) t.inMin = now;
-        else t.outMin = now;
+        let t = d.attendance.find((x) => x.empId === me.id && x.date === TODAY);
+        if (!t) { t = { empId: me.id, date: TODAY, inMin: null, outMin: null, source: "app" }; d.attendance.push(t); }
+        if (phase === "in") Object.assign(t, { inMin: now, lat: fix?.lat, lng: fix?.lng, inAcc: fix ? Math.round(fix.acc) : undefined, method: qrOk ? "qr" : "gps", selfie });
+        else Object.assign(t, { outMin: now, outLat: fix?.lat, outLng: fix?.lng });
+        const flags = [...new Set([...(t.flags ?? []), ...c.flags])];
+        t.flags = flags.length ? flags : undefined;
+        if (c.flags.length) t.review = undefined; // something new to look at
         return d;
       });
-      return { ok: true, text: a?.inMin != null ? "out" : "in" };
+      return { ok: true, text: phase };
+    },
+
+    reviewClock: (empId, date, ok, why) => {
+      if (!ok && !why.trim()) return { ok: false, text: "Say what was wrong, so it is on record." };
+      update((d) => { const t = d.attendance.find((x) => x.empId === empId && x.date === date); if (t) t.review = { ok, by: me.id, at: TODAY, note: why.trim() || undefined }; return d; });
+      return { ok: true, text: ok ? "Marked as fine." : "Marked as not accepted. Fix the hours in Employees if needed." };
     },
 
     saveEmployee: (e) => {
@@ -186,7 +209,9 @@ function SampleProvider({ children }: { children: ReactNode }) {
     applyLeave: async (x) => ctx.applyLeave({ ...x, mcFile: x.mc?.name ?? x.mcFile }),
     cancelLeave: async (rid) => { ctx.cancelLeave(rid); return ok("Request cancelled."); },
     decide: async (ids, st, n) => ctx.decide(ids, st, n),
-    clock: async (lat, lng) => ctx.clock(lat, lng),
+    clock: async (x) => ctx.clock(x),
+    reviewClock: async (e, d, o, n) => ctx.reviewClock(e, d, o, n),
+    officeCode: async () => { const secs = Math.max(15, data.settings.qrSeconds || 60), t = Math.floor(Date.now() / 1000); return { code: officeCode(codeSlot(secs), SAMPLE_OFFICE_SECRET), seconds: secs, left: secs - (t % secs) }; },
     saveEmployee: async (e) => ctx.saveEmployee(e),
     adjustLeave: async (a, t, d, r) => ctx.adjustLeave(a, t, d, r),
     setAttendance: async (a, d, i, o, n) => ctx.setAttendance(a, d, i, o, n),
@@ -197,7 +222,7 @@ function SampleProvider({ children }: { children: ReactNode }) {
     importStaff: async () => ({ ok: false, text: "Importing staff works once HR is connected to the database." }),
     mcLink: async () => null,
     markRead: async () => ctx.markRead(),
-  }), [data, role]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [data, view]); // eslint-disable-line react-hooks/exhaustive-deps
   return <HrCtx.Provider value={value}>{children}</HrCtx.Provider>;
 }
 
@@ -237,12 +262,15 @@ function LiveProvider({ children }: { children: ReactNode }) {
   const need = (): Result | null => (meId ? null : { ok: false, text: "Your login is not linked to an employee record yet. Ask HR to add you with the same email you sign in with." });
 
   const value: Ctx = {
-    data, role, me, live: true, linked: !!meId, loading, error, flash,
+    data, role, me, live: true, linked: !!meId, loading, error, flash, view: role,
     setRole: () => {},
     applyLeave: async (x) => need() ?? after(await L.liveApply(meId!, { type: x.type, from: x.from, to: x.to, half: x.half, reason: x.reason, mc: x.mc })),
     cancelLeave: async (rid) => after(await L.liveCancel(rid)),
     decide: async (ids, st, n) => after(await L.liveDecide(ids, st, n)),
-    clock: async (lat, lng) => need() ?? after(await L.liveClock(lat, lng)),
+    // the database checks the office code, the selfie and the location, and sets the flags
+    clock: async (x) => need() ?? after(await L.liveClock(meId!, x)),
+    reviewClock: async (e, d, o, n) => after(await L.liveReview(e, d, o, n)),
+    officeCode: () => L.liveOfficeCode(),
     saveEmployee: async (e) => after(await L.liveSaveEmployee(e)),
     adjustLeave: async (a, t, d, r) => after(await L.liveAdjust(a, t, d, r)),
     setAttendance: async (a, d, i, o, n) => after(await L.liveSetAttendance(a, d, i, o, n)),

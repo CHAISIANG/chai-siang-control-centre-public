@@ -1,10 +1,12 @@
 // Made-up sample data for the HR screens (stage 1: no database yet). All people and numbers are fictional.
-import { addDays, eachDay, holidaysFor, isWorkingDay, leaveDays, calendarDays, todayMY, weekday, DEFAULT_SETTINGS, type Gender, type Holiday, type LeaveType, type Settings } from "./rules";
+import { addDays, eachDay, holidaysFor, isWorkingDay, leaveDays, calendarDays, todayMY, weekday, DEFAULT_SETTINGS, type ClockFlag, type Gender, type Holiday, type LeaveType, type Settings, type WorkType } from "./rules";
 
 export type Role = "employee" | "manager" | "hr";
 export type Employee = {
   id: string; code: string; name: string; position: string; dept: string; gender: Gender; state: string;
   joined: string; managerId: string | null; role: Role; email: string; phone: string; active: boolean;
+  /** office (default) or field staff: decides how clock-in is checked */
+  workType?: WorkType;
 };
 export type LeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type LeaveRequest = {
@@ -13,7 +15,18 @@ export type LeaveRequest = {
   /** known only from the team calendar: dates and type, no reason */
   calendarOnly?: boolean;
 };
-export type Attendance = { empId: string; date: string; inMin: number | null; outMin: number | null; lat?: number; lng?: number; source: "app" | "hr"; note?: string; by?: string };
+/** HR's look at a flagged clock-in. */
+export type ClockReview = { ok: boolean; by: string; byName?: string; at: string; note?: string };
+export type Attendance = {
+  empId: string; date: string; inMin: number | null; outMin: number | null; lat?: number; lng?: number; source: "app" | "hr"; note?: string; by?: string;
+  /** how sure the phone was of the clock-in place, in metres */
+  inAcc?: number; outLat?: number; outLng?: number;
+  /** "qr": scanned the office screen; "gps": location only */
+  method?: "qr" | "gps";
+  /** small photo taken at clock-in (field staff) */
+  selfie?: string;
+  flags?: ClockFlag[]; review?: ClockReview;
+};
 export type Adjustment = { empId: string; type: LeaveType; days: number; reason: string; by: string; byName?: string; at: string };
 
 export const EMPLOYEES: Employee[] = [
@@ -21,10 +34,13 @@ export const EMPLOYEES: Employee[] = [
   { id: "e2", code: "CS002", name: "Nurul Aisyah binti Hassan", position: "Admin Executive", dept: "Operations", gender: "F", state: "Selangor", joined: "2023-06-12", managerId: "e1", role: "employee", email: "nurul@example.com", phone: "012-000 0002", active: true },
   { id: "e3", code: "CS003", name: "Tan Mei Ling", position: "Account Clerk", dept: "Finance", gender: "F", state: "Selangor", joined: "2025-02-03", managerId: "e5", role: "employee", email: "meiling@example.com", phone: "012-000 0003", active: true },
   { id: "e4", code: "CS004", name: "Rajesh a/l Subramaniam", position: "Storekeeper", dept: "Warehouse", gender: "M", state: "Selangor", joined: "2020-09-01", managerId: "e1", role: "employee", email: "rajesh@example.com", phone: "012-000 0004", active: true },
+  { id: "e6", code: "CS006", name: "Hafiz bin Osman", position: "Salesman", dept: "Sales", gender: "M", state: "Selangor", joined: "2022-04-18", managerId: "e1", role: "employee", email: "hafiz@example.com", phone: "012-000 0006", active: true, workType: "field" },
   { id: "e5", code: "CS005", name: "Lim Wei Jie", position: "HR & Admin Manager", dept: "HR", gender: "M", state: "Selangor", joined: "2016-01-04", managerId: null, role: "hr", email: "weijie@example.com", phone: "012-000 0005", active: true },
 ];
 /** Whose screens the sample shows for each view. */
 export const ME: Record<Role, string> = { employee: "e2", manager: "e1", hr: "e5" };
+/** In the sample, "Employee" can also be seen as the field salesman. */
+export const FIELD_ME = "e6";
 export type Note = { id: string; to: string; text: string; at: string; read: boolean; href?: string };
 
 // Federal and Selangor public holidays. Islamic and lunar dates are estimates: HR should check them against the official gazette.
@@ -110,10 +126,13 @@ export const LEAVE_REQUESTS: LeaveRequest[] = [
 ];
 
 /** Annual leave carried over from last year into this year (usable until the carry-over expiry date). */
-export const CARRY_IN: Record<string, number> = { e1: 5, e2: 3, e3: 0, e4: 4, e5: 5 };
+export const CARRY_IN: Record<string, number> = { e1: 5, e2: 3, e3: 0, e4: 4, e5: 5, e6: 2 };
 export const ADJUSTMENTS: Adjustment[] = [
   { empId: "e4", type: "AL", days: 1, reason: "Worked on Labour Day stock-take, replacement day", by: "e5", at: `${YEAR}-05-04` },
 ];
+
+/** A drawn face standing in for a selfie in the sample. */
+export const SAMPLE_SELFIE = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" fill="#cbd5e1"/><circle cx="60" cy="48" r="24" fill="#94a3b8"/><path d="M18 120c4-28 22-40 42-40s38 12 42 40z" fill="#94a3b8"/></svg>');
 
 // ---------- attendance: this month up to today, made up but repeatable ----------
 function rng(seed: number) { let s = seed; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
@@ -140,6 +159,25 @@ export const ATTENDANCE: Attendance[] = (() => {
       out.push({ empId: e.id, date: d, inMin, outMin, source: "app" });
     }
   });
+  // where people clocked in: office staff at the office, the salesman at his first customer of the day
+  const off = { lat: DEFAULT_SETTINGS.officeLat, lng: DEFAULT_SETTINGS.officeLng };
+  out.forEach((a, k) => {
+    if (a.inMin == null) return;
+    const rand = rng(500 + k);
+    if (EMPLOYEES.find((e) => e.id === a.empId)?.workType === "field") {
+      Object.assign(a, { lat: off.lat + (rand() - 0.5) * 0.12, lng: off.lng + (rand() - 0.5) * 0.12, inAcc: 15 + Math.round(rand() * 30), method: "gps", selfie: SAMPLE_SELFIE });
+    } else {
+      Object.assign(a, { lat: off.lat + (rand() - 0.5) * 0.0008, lng: off.lng + (rand() - 0.5) * 0.0008, inAcc: 10 + Math.round(rand() * 15), method: "qr" });
+    }
+    if (a.outMin != null) Object.assign(a, { outLat: a.lat! + (rand() - 0.5) * 0.0006, outLng: a.lng! + (rand() - 0.5) * 0.0006 });
+  });
+  // a few things for HR to look at
+  const flag = (empId: string, back: number, f: Partial<Attendance>) => { const a = out.find((x) => x.empId === empId && x.date === back0(back)); if (a) Object.assign(a, f); };
+  const back0 = (n: number) => { let d = addDays(TODAY, -n); while (!isWorkingDay(d, sel)) d = addDays(d, -1); return d; };
+  flag("e6", 1, { lat: undefined, lng: undefined, inAcc: undefined, flags: ["no_gps"] });
+  flag("e6", 3, { inAcc: 850, flags: ["weak_gps"] });
+  flag("e4", 2, { outLat: off.lat + 0.041, outLng: off.lng - 0.022, flags: ["far_out"] });
+  flag("e2", 4, { method: "gps", lat: off.lat + 0.018, lng: off.lng + 0.009, flags: ["far_in"], review: { ok: true, by: "e5", at: back0(3), note: "Training at the Colgate office that morning" } });
   return out.filter((a) => !(a.empId === "e2" && a.date === TODAY)); // Nurul has not clocked in yet today
 })();
 

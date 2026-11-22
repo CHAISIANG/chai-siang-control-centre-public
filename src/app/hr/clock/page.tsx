@@ -1,56 +1,100 @@
 "use client";
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { MapPin } from "lucide-react";
+/* eslint-disable @next/next/no-img-element -- selfies are small in-page photos, not site images */
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Camera, Check, MapPin, QrCode, TriangleAlert } from "lucide-react";
 import { Card } from "@/components/ui";
-import { addDays, fmtDate, fmtHM, hm, isLate, isRestDay, metres, overtime, workedMin } from "@/lib/hr/rules";
+import { addDays, clockCheck, codeValid, SAMPLE_OFFICE_SECRET, fmtDate, fmtHM, hm, isLate, isRestDay, overtime, WORK_TYPES, workedMin, type Fix } from "@/lib/hr/rules";
 import { TODAY } from "@/lib/hr/sample";
 import { holidaySetFor } from "@/lib/hr/calc";
 import { useHr } from "@/lib/hr/store";
 
 const subscribe = (cb: () => void) => { const t = setInterval(cb, 1000); return () => clearInterval(t); };
 const timeNow = () => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kuala_Lumpur", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date());
-type Gps = { state: "idle" | "checking" | "ok" | "far" | "denied"; lat?: number; lng?: number; dist?: number };
+type Gps = { state: "idle" | "checking" | "ok" | "denied"; fix?: Fix };
+const away = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+
+/** A selfie made small enough to keep: about 240 px, JPEG. */
+async function smallPhoto(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = url; });
+    const k = Math.min(1, 240 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.75);
+  } finally { URL.revokeObjectURL(url); }
+}
+
+/** One line of the "before you clock in" list. */
+function Need({ done, warn, icon, title, detail, action }: { done: boolean; warn?: boolean; icon: React.ReactNode; title: string; detail: string; action?: React.ReactNode }) {
+  return (
+    <li className="flex items-center gap-3 py-2.5">
+      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${done ? "bg-emerald-100 text-emerald-700" : warn ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-500"}`}>{done ? <Check size={16} /> : icon}</span>
+      <span className="min-w-0 flex-1"><span className="block font-medium text-slate-900">{title}</span><span className={`block text-sm ${warn ? "text-rose-700" : "text-slate-500"}`}>{detail}</span></span>
+      {action}
+    </li>
+  );
+}
 
 export default function ClockPage() {
-  const { data, me, clock } = useHr();
+  const { data, me, clock, live } = useHr();
   const s = data.settings;
+  const type = me.workType ?? "office";
   const hol = holidaySetFor(data, me.state);
   const time = useSyncExternalStore(subscribe, timeNow, () => "--:--:--");
   const rec = data.attendance.find((a) => a.empId === me.id && a.date === TODAY);
   const [gps, setGps] = useState<Gps>({ state: "idle" });
+  const [code, setCode] = useState(() => (typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("k") ?? ""));
+  const [typing, setTyping] = useState(false);
+  const [selfie, setSelfie] = useState<string | undefined>();
   const [flash, setFlash] = useState<{ ok: boolean; text: string } | null>(null);
-  useEffect(() => { if (flash) { const t = setTimeout(() => setFlash(null), 5000); return () => clearTimeout(t); } }, [flash]);
+  const [busy, setBusy] = useState(false);
+  const photo = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (flash) { const t = setTimeout(() => setFlash(null), 6000); return () => clearTimeout(t); } }, [flash]);
 
-  const state = rec?.inMin == null ? "in" : rec.outMin == null ? "out" : "done";
-  const blocked = s.gpsRequired && gps.state !== "ok";
+  const phase = rec?.inMin == null ? "in" : rec.outMin == null ? "out" : "done";
+  // in the app the database checks the code; this screen only checks it in the sample
+  const qrOk = !!code && (live ? /^\d{6}$/.test(code) : codeValid(code, s.qrSeconds, SAMPLE_OFFICE_SECRET));
+  const check = phase === "done" ? null : clockCheck({ type, phase, s, fix: gps.fix ?? null, qrOk, selfie: !!selfie });
+  const needQr = type === "office" && phase === "in" && s.qrRequired;
+  const needSelfie = type === "field" && phase === "in" && s.fieldSelfie;
 
   function locate(then?: (g: Gps) => void) {
     if (!navigator.geolocation) { const g: Gps = { state: "denied" }; setGps(g); then?.(g); return; }
     setGps({ state: "checking" });
     navigator.geolocation.getCurrentPosition((p) => {
-      const dist = metres(p.coords.latitude, p.coords.longitude, s.officeLat, s.officeLng);
-      const g: Gps = { state: dist <= s.gpsRadiusM ? "ok" : "far", lat: p.coords.latitude, lng: p.coords.longitude, dist };
+      const g: Gps = { state: "ok", fix: { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy } };
       setGps(g); then?.(g);
-    }, () => { const g: Gps = { state: "denied" }; setGps(g); then?.(g); }, { enableHighAccuracy: true, timeout: 10000 });
+    }, () => { const g: Gps = { state: "denied" }; setGps(g); then?.(g); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
   }
-  const [busy, setBusy] = useState(false);
-  async function press() {
-    if (blocked) { locate(); return; }
+  async function send(g: Gps) {
     setBusy(true);
-    const r = await clock(gps.lat, gps.lng);
+    const r = await clock({ fix: g.fix ?? null, qrOk, code: needQr && qrOk ? code : undefined, selfie: phase === "in" && type === "field" ? selfie : undefined });
     setBusy(false);
     if (!r.ok) { setFlash(r); return; }
     const now = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kuala_Lumpur", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
     const late = r.text === "in" && isLate(hm(now), s);
     setFlash({ ok: true, text: r.text === "in" ? `Clocked in at ${now}${late ? `. That is after ${fmtHM(hm(s.workStart) + s.lateAfterMin)}, so it counts as late.` : "."}` : `Clocked out at ${now}. Have a good evening.` });
+    setSelfie(undefined); setCode("");
   }
-  // when the location check is on, look it up as soon as the page opens
+  // the location is read fresh at the moment of pressing, so an old reading is never used
+  function press() { if (gps.state === "checking" || busy) return; locate((g) => void send(g)); }
+  // look up the location as soon as the page opens, to show where you are
   // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- one lookup when the page opens
-  useEffect(() => { if (s.gpsRequired && state !== "done") locate(); }, []);
+  useEffect(() => { if (phase !== "done") locate(); }, []);
 
+  const dist = check?.dist ?? null;
+  const tooFar = type === "office" && dist !== null && dist > s.gpsRadiusM;
+  const locTitle = type === "field" ? "Your location is recorded" : s.gpsRequired && phase === "in" ? "Be at the office" : "Your location is recorded";
+  const locDetail = gps.state === "checking" ? "Checking where you are…"
+    : gps.state === "denied" ? (type === "office" && s.gpsRequired && phase === "in" ? "Location not shared. Allow location for this site in your browser." : "Location not shared. You can still clock in, but HR will see it.")
+    : !gps.fix ? "Not checked yet"
+    : type === "field" ? `Found, accurate to ${away(gps.fix.acc)}${gps.fix.acc > 300 ? ". Weak signal: HR will see it." : ""}`
+    : tooFar ? `${away(dist!)} from the office${s.gpsRequired && phase === "in" ? ": too far to clock in" : ". HR will see it."}` : `At the office (${away(dist!)} away)`;
+  const blocked = !!check?.block && !(check.block.startsWith("Share") || check.block.startsWith("You are")); // location gets read when pressing
+  const ring = phase === "done" ? "bg-slate-300 ring-slate-100" : blocked ? "bg-slate-400 ring-slate-200" : phase === "in" ? "bg-blue-500 hover:bg-blue-600 ring-blue-200" : "bg-amber-500 hover:bg-amber-600 ring-amber-200";
   const week = Array.from({ length: 7 }, (_, i) => addDays(TODAY, -(i + 1)));
-  const ring = state === "done" ? "bg-slate-300 ring-slate-100" : blocked ? "bg-slate-400 ring-slate-200" : state === "in" ? "bg-blue-500 hover:bg-blue-600 ring-blue-200" : "bg-amber-500 hover:bg-amber-600 ring-amber-200";
-  const gpsText = !s.gpsRequired && gps.state === "idle" ? "Location check is off" : gps.state === "checking" ? "Checking your location…" : gps.state === "ok" ? `At the office (${Math.round(gps.dist!)} m away)` : gps.state === "far" ? `${(gps.dist! / 1000).toFixed(1)} km from the office: too far to clock in` : gps.state === "denied" ? "Location not shared. Allow location for this site in your browser." : "Location not checked yet";
 
   return (
     <div className="mx-auto max-w-md">
@@ -58,22 +102,42 @@ export default function ClockPage() {
         <h1 className="sr-only">Clock in or out</h1>
         <p className="text-slate-500">{fmtDate(TODAY, { weekday: "long", day: "numeric", month: "long" })}</p>
         <p className="font-display text-5xl font-semibold tabular-nums tracking-tight text-slate-900">{time}</p>
-        <p className="mt-1 text-sm text-slate-500">Working hours {s.workStart} – {s.workEnd} · lunch {s.lunchStart} – {s.lunchEnd}</p>
+        <p className="mt-1 text-sm text-slate-500">Working hours {s.workStart} – {s.workEnd} · {WORK_TYPES.find((w) => w.code === type)!.name}</p>
       </div>
 
-      <div className="my-8 flex justify-center">
-        <button onClick={press} disabled={state === "done" || gps.state === "checking" || busy}
+      <div className="my-7 flex justify-center">
+        <button onClick={press} disabled={phase === "done" || gps.state === "checking" || busy || blocked}
           className={`flex h-56 w-56 flex-col items-center justify-center rounded-full text-white shadow-lg ring-8 transition-transform active:scale-95 disabled:cursor-default ${ring}`}>
-          <span className="text-3xl font-semibold">{state === "done" ? "Done" : blocked ? "Check location" : state === "in" ? "Clock in" : "Clock out"}</span>
-          <span className="mt-1 px-6 text-sm text-white/85">{state === "in" ? (blocked ? "You must be at the office" : "Tap to start your day") : state === "out" ? `In since ${fmtHM(rec!.inMin!)}` : "See you tomorrow"}</span>
+          <span className="text-3xl font-semibold">{phase === "done" ? "Done" : busy ? "Saving…" : phase === "in" ? "Clock in" : "Clock out"}</span>
+          <span className="mt-1 px-6 text-sm text-white/85">{phase === "in" ? (blocked ? check!.block : "Tap to start your day") : phase === "out" ? `In since ${fmtHM(rec!.inMin!)}` : "See you tomorrow"}</span>
         </button>
       </div>
       {flash && <p role="status" className={`mb-4 rounded-lg px-3 py-2 text-center text-sm ${flash.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>{flash.text}</p>}
 
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
-        <span className={`inline-flex items-center gap-2 ${gps.state === "far" || gps.state === "denied" ? "text-rose-700" : "text-slate-700"}`}><MapPin size={18} className="shrink-0 text-blue-500" />{gpsText}</span>
-        {gps.state !== "checking" && <button onClick={() => locate()} className="shrink-0 font-medium text-blue-600 hover:underline">{gps.state === "idle" ? "Check" : "Check again"}</button>}
-      </div>
+      {phase !== "done" && (
+        <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white px-4">
+          <Need done={!!gps.fix && !(tooFar && s.gpsRequired && phase === "in")} warn={gps.state === "denied" || (tooFar && s.gpsRequired && phase === "in")} icon={<MapPin size={16} />} title={locTitle} detail={locDetail}
+            action={gps.state !== "checking" && <button onClick={() => locate()} className="shrink-0 text-sm font-medium text-blue-600 hover:underline">Check again</button>} />
+          {needQr && (
+            <Need done={qrOk} warn={!!code && !qrOk} icon={<QrCode size={16} />} title="Scan the office screen"
+              detail={qrOk ? "Office code accepted" : code ? "That code has expired or is wrong. Scan the screen again." : "Point your phone camera at the code on the office screen, or type the 6 digits under it."}
+              action={!qrOk && <button onClick={() => setTyping(!typing)} className="shrink-0 text-sm font-medium text-blue-600 hover:underline">Type it</button>} />
+          )}
+          {needQr && typing && !qrOk && (
+            <li className="pb-3"><label className="text-sm text-slate-700">Code on the office screen
+              <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-center text-2xl tracking-[0.4em] tabular-nums" /></label></li>
+          )}
+          {needSelfie && (
+            <Need done={!!selfie} icon={<Camera size={16} />} title="Take a selfie" detail={selfie ? "Photo ready. It is kept with today's clock-in." : "Shows HR it is really you clocking in."}
+              action={<>
+                {selfie && <img src={selfie} alt="Your selfie" className="h-10 w-10 shrink-0 rounded-full object-cover" />}
+                <button onClick={() => photo.current?.click()} className="shrink-0 text-sm font-medium text-blue-600 hover:underline">{selfie ? "Retake" : "Open camera"}</button>
+                <input ref={photo} type="file" accept="image/*" capture="user" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) setSelfie(await smallPhoto(f)); }} />
+              </>} />
+          )}
+        </ul>
+      )}
+      {rec?.flags?.length ? <p className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900"><TriangleAlert size={16} className="mt-0.5 shrink-0" />HR will look at today&apos;s record: {rec.flags.length === 1 ? "something" : "some things"} did not match the usual check.</p> : null}
 
       <Card className="mt-4" title="Today">
         <dl className="grid grid-cols-3 gap-2 text-center">
@@ -95,7 +159,7 @@ export default function ClockPage() {
               <li key={d} className="flex items-center justify-between gap-3 py-2">
                 <span className="text-slate-700">{fmtDate(d, { weekday: "short", day: "numeric", month: "short" })}</span>
                 {a?.inMin != null
-                  ? <span className="text-right"><span className={isLate(a.inMin, s) ? "font-medium text-amber-700" : "text-slate-900"}>{fmtHM(a.inMin)}</span> – {a.outMin != null ? fmtHM(a.outMin) : <span className="text-rose-700">no clock-out</span>}{ot?.hours ? <span className="ml-2 text-blue-600">+{ot.hours} h OT</span> : null}{a.source === "hr" && <span className="ml-2 text-xs text-slate-400">by HR</span>}</span>
+                  ? <span className="text-right"><span className={isLate(a.inMin, s) ? "font-medium text-amber-700" : "text-slate-900"}>{fmtHM(a.inMin)}</span> – {a.outMin != null ? fmtHM(a.outMin) : <span className="text-rose-700">no clock-out</span>}{ot?.hours ? <span className="ml-2 text-blue-600">+{ot.hours} h OT</span> : null}{a.source === "hr" && <span className="ml-2 text-xs text-slate-400">by HR</span>}{a.flags?.length && !a.review ? <span className="ml-2 text-xs text-amber-700">HR checking</span> : null}</span>
                   : <span className={off || onLeave ? "text-slate-400" : "text-rose-700"}>{off ?? (onLeave ? "On leave" : "No record")}</span>}
               </li>
             );

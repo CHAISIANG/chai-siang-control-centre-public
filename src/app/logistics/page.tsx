@@ -55,7 +55,8 @@ export default function Logistics() {
     const loaded = on.filter((j) => j.status === "Loaded").length, podMissing = on.filter((j) => j.status === "Delivered").length;
     const where: Where = !canLoad(l.condition) ? "Not available" : loaded ? "Out delivering" : podMissing ? "Back, POD missing" : "Free";
     const drivers = [...new Set(on.map((j) => j.vehicle?.driver).filter(Boolean))], routes = [...new Set(on.map((j) => j.route).filter(Boolean))];
-    return { l, where, loaded, podMissing, amount: on.reduce((t, j) => t + j.amount, 0), driver: drivers.join(", ") || l.driver, route: routes.join(", "), papers: warnings(l).filter((w) => w.state === "expired") };
+    const assistants = [...new Set(on.map((j) => j.vehicle?.assistant).filter(Boolean))];
+    return { l, where, loaded, podMissing, amount: on.reduce((t, j) => t + j.amount, 0), driver: drivers.join(", ") || l.driver, assistant: assistants.join(", "), route: routes.join(", "), papers: warnings(l).filter((w) => w.state === "expired") };
   }).sort((a, b) => WHERE.indexOf(a.where) - WHERE.indexOf(b.where) || b.loaded - a.loaded || a.l.no.localeCompare(b.l.no));
   const third = jobs.filter((j) => j.vehicle?.kind === "third" && (j.status === "Loaded" || j.status === "Delivered"));
   const count = (w: Where) => board.filter((b) => b.where === w).length;
@@ -89,7 +90,7 @@ export default function Logistics() {
                 <Badge tone={conditionTone(b.l.condition)}>{b.l.condition}</Badge>
               </div>
               <div className="mt-1 text-sm font-medium text-slate-800">{b.where}</div>
-              <div className="text-sm text-slate-600">{b.driver || "No driver set"}{b.route ? ` · ${b.route}` : ""}</div>
+              <div className="text-sm text-slate-600">{b.driver || "No driver set"}{b.assistant ? ` + ${b.assistant}` : ""}{b.route ? ` · ${b.route}` : ""}</div>
               <div className="text-xs text-slate-400">{b.l.size}{b.l.pallets != null ? `, ${b.l.pallets} pallets` : ""}</div>
               {(b.loaded > 0 || b.podMissing > 0) && <div className="mt-2 text-sm text-slate-700">{b.loaded} out · {b.podMissing} POD missing · RM {money(b.amount)}</div>}
               {b.where === "Not available" && b.l.notes && <div className="mt-1 text-xs text-rose-700">{b.l.notes}</div>}

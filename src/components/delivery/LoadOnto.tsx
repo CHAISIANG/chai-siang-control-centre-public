@@ -11,14 +11,15 @@ const money = (n: number) => n.toLocaleString("en-MY", { minimumFractionDigits: 
  * With one lorry chosen: the invoices that are picked and waiting, to tick and load onto that lorry in one go.
  * The lorry, driver and route are filled in; the database checks the lorry can be loaded.
  */
-export function LoadOnto({ plate, blocked, waiting, driver: driver0, route: route0, onLoad }: {
-  plate: string; blocked: string | null; waiting: DeliveryJob[]; driver: string; route: string;
+export function LoadOnto({ plate, blocked, waiting, driver: driver0, assistant: assistant0 = "", route: route0, onLoad }: {
+  plate: string; blocked: string | null; waiting: DeliveryJob[]; driver: string; assistant?: string; route: string;
   onLoad: (docs: string[], v: Vehicle, route: string) => Promise<Result>;
 }) {
   const [open, setOpen] = useState(false);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [q, setQ] = useState("");
   const [driver, setDriver] = useState(driver0);
+  const [assistant, setAssistant] = useState(assistant0);
   const [route, setRoute] = useState(route0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -39,6 +40,7 @@ export function LoadOnto({ plate, blocked, waiting, driver: driver0, route: rout
       <div className="flex flex-wrap items-end gap-3">
         <div className="font-semibold text-slate-900">Load onto {plate}</div>
         <label className="text-sm text-slate-700">Driver<input className={`${inputCls} !mt-0.5 !py-1.5 !text-sm`} value={driver} onChange={(e) => setDriver(e.target.value)} /></label>
+        <label className="text-sm text-slate-700">Lorry assistant<input className={`${inputCls} !mt-0.5 !py-1.5 !text-sm`} value={assistant} onChange={(e) => setAssistant(e.target.value)} placeholder="Optional" /></label>
         <label className="text-sm text-slate-700">Route<input className={`${inputCls} !mt-0.5 !py-1.5 !text-sm`} value={route} onChange={(e) => setRoute(e.target.value)} placeholder="For example Route 1" /></label>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search invoice or customer" aria-label="Search picked invoices" className="ml-auto rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
       </div>
@@ -70,7 +72,7 @@ export function LoadOnto({ plate, blocked, waiting, driver: driver0, route: rout
           <button onClick={() => { setOpen(false); setTicked(new Set()); setErr(""); }} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100">Close</button>
           <button disabled={busy || !chosen.length} onClick={async () => {
             setBusy(true);
-            const r = await onLoad(chosen.map((j) => j.docNo), { kind: "own", lorryNo: plate, driver: driver.trim() }, route);
+            const r = await onLoad(chosen.map((j) => j.docNo), { kind: "own", lorryNo: plate, driver: driver.trim(), ...(assistant.trim() ? { assistant: assistant.trim() } : {}) }, route);
             setBusy(false);
             if (r.ok) { setTicked(new Set()); setErr(""); } else setErr(r.text);
           }} className={`${btnPrimary} !px-3 !py-1.5 !text-sm`}>{busy ? "Loading…" : `Load ${chosen.length || ""} onto ${plate}`}</button>

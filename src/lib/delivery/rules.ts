@@ -15,14 +15,15 @@ export const STATUS_HELP: Record<Status, string> = {
 export const statusTone = (s: Status): "grey" | "blue" | "amber" | "green" | "red" =>
   s === "Completed" ? "green" : s === "Failed" ? "red" : s === "Delivered" ? "amber" : s === "Loaded" ? "blue" : "grey";
 
-export type Vehicle = { kind: "own" | "third"; lorryNo?: string; driver?: string; transporter?: string; vehicleNo?: string };
+/** Who takes the goods: our own lorry (with its driver and the lorry assistant, if any) or a 3rd-party transporter. */
+export type Vehicle = { kind: "own" | "third"; lorryNo?: string; driver?: string; assistant?: string; transporter?: string; vehicleNo?: string };
 export type JobEvent = { at: string; status: Status | "Note"; by: string; note?: string };
 export type DocCase = "DO" | "NO_DO";
 export type DeliveryJob = {
   docNo: string; docDate: string; customer: string; customerName: string; agent: string; amount: number;
   docCase: DocCase; status: Status; vehicle?: Vehicle; route?: string; podFile?: string; podPath?: string; failReason?: string; events: JobEvent[];
 };
-export const vehicleText = (v?: Vehicle) => (!v ? "" : v.kind === "own" ? `${v.lorryNo ?? ""}${v.driver ? ` · ${v.driver}` : ""}` : `${v.transporter ?? ""}${v.vehicleNo ? ` · ${v.vehicleNo}` : ""}`);
+export const vehicleText = (v?: Vehicle) => (!v ? "" : v.kind === "own" ? `${v.lorryNo ?? ""}${v.driver ? ` · ${v.driver}` : ""}${v.assistant ? ` + ${v.assistant}` : ""}` : `${v.transporter ?? ""}${v.vehicleNo ? ` · ${v.vehicleNo}` : ""}`);
 
 export const EXC_KINDS = ["Rejected goods", "Short delivery", "Refused to sign", "Damaged or leaking on arrival", "Wrong item", "Document lost", "Customer closed", "3rd-party failure"] as const;
 export type ExcKind = (typeof EXC_KINDS)[number];

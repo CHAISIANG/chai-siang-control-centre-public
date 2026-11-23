@@ -62,6 +62,7 @@ export default function Deliveries() {
   const picked = fleet.find((l) => l.no === lorry);
   const routes = [...new Set(mine.filter((j) => j.status === "Loaded" || j.status === "Delivered").map((j) => j.route).filter(Boolean))];
   const drivers = [...new Set(mine.filter((j) => j.status === "Loaded" || j.status === "Delivered").map((j) => j.vehicle?.driver).filter(Boolean))];
+  const assistants = [...new Set(mine.filter((j) => j.status === "Loaded" || j.status === "Delivered").map((j) => j.vehicle?.assistant).filter(Boolean))];
   const grid = useGrid(tabbed, COLS, { id: "date", dir: -1 }, byDoc);
   const rows = grid.rows;
   const total = rows.reduce((s, j) => s + j.amount, 0);
@@ -139,6 +140,7 @@ export default function Deliveries() {
               <span className="text-base font-semibold text-slate-900">{lorry === "third" ? "3rd-party transporters" : lorry}</span>
               {picked && <span>{picked.size}{picked.pallets != null ? `, ${picked.pallets} pallets` : ""}</span>}
               {drivers.length > 0 && <span>Driver: {drivers.join(", ")}</span>}
+              {assistants.length > 0 && <span>Assistant: {assistants.join(", ")}</span>}
               {routes.length > 0 && <span>Route: {routes.join(", ")}</span>}
               <span>Out for delivery <b>{count("Loaded")}</b> · POD missing <b>{count("Delivered")}</b> · Done <b>{count("Completed")}</b> · RM {money(mine.filter((j) => j.status === "Loaded" || j.status === "Delivered").reduce((t, j) => t + j.amount, 0))} on the road</span>
               <button onClick={() => { setLorry(""); setSel(new Set()); }} className="ml-auto text-indigo-700 hover:underline">Show all lorries</button>
@@ -146,7 +148,7 @@ export default function Deliveries() {
                 <div className="w-full">
                   <LoadOnto key={lorry} plate={lorry} waiting={jobs.filter((j) => j.status === "Picked")}
                     blocked={picked && !canLoad(picked.condition) ? `${lorry} is ${picked.condition.toLowerCase()}: it cannot be loaded.` : null}
-                    driver={drivers[0] ?? picked?.driver ?? ""} route={routes[0] ?? ""}
+                    driver={drivers[0] ?? picked?.driver ?? ""} assistant={assistants[0] ?? ""} route={routes[0] ?? ""}
                     onLoad={(docs, v, route) => run(() => markLoaded(sample, docs, v, route, me))} />
                   {picked && !canLoad(picked.condition) && <p className="mt-1 text-sm text-rose-700">{lorry} is {picked.condition.toLowerCase()}{picked.notes ? ` (${picked.notes})` : ""}: it cannot be loaded.</p>}
                 </div>
@@ -240,6 +242,7 @@ function LoadModal({ count, sample, onClose, onLoad }: { count: number; sample: 
             </label>
           ) : <label className="text-sm font-medium text-slate-700">Lorry number<input className={inputCls} value={v.lorryNo ?? ""} onChange={(e) => setV({ ...v, lorryNo: e.target.value })} /></label>}
           <label className="text-sm font-medium text-slate-700">Driver<input className={inputCls} value={v.driver ?? ""} onChange={(e) => setV({ ...v, driver: e.target.value })} /></label>
+          <label className="text-sm font-medium text-slate-700 sm:col-span-2">Lorry assistant (optional)<input className={inputCls} value={v.assistant ?? ""} onChange={(e) => setV({ ...v, assistant: e.target.value })} placeholder="Name; for two, separate with a comma" /></label>
         </div>
       ) : (
         <div className="mt-3 grid gap-3 sm:grid-cols-2">

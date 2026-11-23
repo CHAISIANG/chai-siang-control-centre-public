@@ -1,5 +1,6 @@
 "use client";
 import { canLoad, cleanPlate, useFleet, warnings } from "@/lib/fleet";
+import { LoadOnto } from "@/components/delivery/LoadOnto";
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { FileSpreadsheet, Printer, Upload, X } from "lucide-react";
@@ -141,6 +142,15 @@ export default function Deliveries() {
               {routes.length > 0 && <span>Route: {routes.join(", ")}</span>}
               <span>Out for delivery <b>{count("Loaded")}</b> · POD missing <b>{count("Delivered")}</b> · Done <b>{count("Completed")}</b> · RM {money(mine.filter((j) => j.status === "Loaded" || j.status === "Delivered").reduce((t, j) => t + j.amount, 0))} on the road</span>
               <button onClick={() => { setLorry(""); setSel(new Set()); }} className="ml-auto text-indigo-700 hover:underline">Show all lorries</button>
+              {lorry !== "third" && (
+                <div className="w-full">
+                  <LoadOnto key={lorry} plate={lorry} waiting={jobs.filter((j) => j.status === "Picked")}
+                    blocked={picked && !canLoad(picked.condition) ? `${lorry} is ${picked.condition.toLowerCase()}: it cannot be loaded.` : null}
+                    driver={drivers[0] ?? picked?.driver ?? ""} route={routes[0] ?? ""}
+                    onLoad={(docs, v, route) => run(() => markLoaded(sample, docs, v, route, me))} />
+                  {picked && !canLoad(picked.condition) && <p className="mt-1 text-sm text-rose-700">{lorry} is {picked.condition.toLowerCase()}{picked.notes ? ` (${picked.notes})` : ""}: it cannot be loaded.</p>}
+                </div>
+              )}
             </div>
           )}
           {msg && (

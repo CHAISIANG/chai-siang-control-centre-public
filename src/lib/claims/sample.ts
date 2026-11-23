@@ -26,6 +26,7 @@ export const CATEGORIES: Category[] = [
   { code: "OFF", name: "Office supplies", perItemLimit: 300, monthlyBudget: 1500, receiptRequired: true, mileage: false, active: true },
   { code: "TRN", name: "Training & courses", perItemLimit: 1500, monthlyBudget: 5000, receiptRequired: true, mileage: false, active: true },
   { code: "MED", name: "Medical (outpatient)", perItemLimit: 150, monthlyBudget: 2000, receiptRequired: true, mileage: false, active: true },
+  { code: "OTH", name: "Others", perItemLimit: 200, monthlyBudget: 1000, receiptRequired: true, mileage: false, active: true },
 ];
 export const catName = (code: string) => CATEGORIES.find((c) => c.code === code)?.name ?? code;
 

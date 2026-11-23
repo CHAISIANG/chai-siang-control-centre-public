@@ -1,12 +1,13 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { KeyRound, Plus, RefreshCw } from "lucide-react";
 import { useAuth, type RoleInfo } from "@/components/auth";
 import { useData } from "@/components/data";
 import { Badge, Card, PageHeader, Td, Th } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { staffCodeOf, staffEmail } from "@/lib/staffLogin";
 import { StaffLoginForm, type NewStaffLogin, type StaffPick } from "@/components/users/StaffLoginForm";
+import { BulkLogins, type BulkResult, type BulkRow } from "@/components/users/BulkLogins";
 
 type UserRow = { id: string; email: string; full_name: string | null; role: string; salesman_code: string | null; active: boolean; protected: boolean; last_sign_in_at: string | null; confirmed: boolean };
 type Draft = { full_name: string; role: string; salesman_code: string; active: boolean; password: string };
@@ -45,6 +46,7 @@ export default function UsersPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<"email" | "staff">("email");
+  const [bulk, setBulk] = useState(false);
   const [staff, setStaff] = useState<{ code: string; name: string; position: string; email: string | null }[]>([]);
 
   const load = useCallback(async () => {
@@ -87,6 +89,20 @@ export default function UsersPage() {
     }, `Created a login for ${x.full_name}. They sign in with username ${x.code} and the password ${x.password}. They can change it on My account.`);
   }
 
+  // one login after another, so each result (and any refusal) is known
+  async function createMany(rows: BulkRow[], progress: (n: number) => void): Promise<BulkResult[]> {
+    const out: BulkResult[] = [];
+    for (const [i, x] of rows.entries()) {
+      try {
+        await callAdmin({ action: "create", email: x.email ?? staffEmail(x.code), ...(x.email ? {} : { staff_code: x.code }), full_name: x.name, password: x.password, role: x.role, salesman_code: x.salesman_code || null });
+        out.push({ code: x.code, ok: true, text: "Created" });
+      } catch (e) { out.push({ code: x.code, ok: false, text: e instanceof Error ? e.message : "Not created" }); }
+      progress(i + 1);
+    }
+    await load();
+    return out;
+  }
+
   async function create() {
     await run(async () => {
       await callAdmin({ action: "create", ...form, salesman_code: form.salesman_code || null });
@@ -100,10 +116,18 @@ export default function UsersPage() {
       <PageHeader title="Users" sub="Create, edit and delete the people who can sign in. There is no public sign-up."
         right={<div className="flex gap-2">
           <button onClick={() => void load()} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100"><RefreshCw size={15} /> Refresh</button>
-          <button onClick={() => { setAdding(!adding); setNotice(null); }} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"><Plus size={16} /> Add user</button>
+          <button onClick={() => { setBulk(!bulk); setAdding(false); setNotice(null); }} className="inline-flex items-center gap-1 rounded-lg border border-indigo-300 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"><KeyRound size={15} /> Logins for staff without one</button>
+          <button onClick={() => { setAdding(!adding); setBulk(false); setNotice(null); }} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"><Plus size={16} /> Add user</button>
         </div>} />
       {error && <p role="alert" className="mb-4 rounded bg-rose-50 px-3 py-2 text-rose-800">{error}</p>}
       {notice && <p role="status" className="mb-4 rounded bg-emerald-50 px-3 py-2 text-emerald-800">{notice}</p>}
+
+      {bulk && (
+        <Card title="Create logins for staff without one" className="mb-5">
+          <BulkLogins staff={picks.filter((x) => !x.hasLogin)} roles={assignable} salesmen={salesmen} newPassword={newPassword}
+            needsSalesman={(r) => r === "salesperson"} onCreate={createMany} onClose={() => setBulk(false)} />
+        </Card>
+      )}
 
       {adding && (
         <Card title="New user" className="mb-5">

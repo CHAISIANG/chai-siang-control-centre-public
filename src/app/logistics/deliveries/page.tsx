@@ -1,4 +1,5 @@
 "use client";
+import { canLoad, useFleet, warnings } from "@/lib/fleet";
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { FileSpreadsheet, Printer, Upload, X } from "lucide-react";
@@ -167,7 +168,7 @@ export default function Deliveries() {
         </Card>
       </div>
 
-      {loading && <LoadModal count={selected.length} onClose={() => setLoading(false)} onLoad={async (v, route) => { const r = await run(() => markLoaded(sample, selected, v, route, me), true); if (r.ok) setLoading(false); return r; }} />}
+      {loading && <LoadModal count={selected.length} sample={sample} onClose={() => setLoading(false)} onLoad={async (v, route) => { const r = await run(() => markLoaded(sample, selected, v, route, me), true); if (r.ok) setLoading(false); return r; }} />}
       {current && <JobModal job={current} sample={sample} me={me} onClose={() => setOpen(null)} run={run} />}
 
       <PrintSheet title="Deliveries" rows={rows} cols={printCols} rowKey={(j) => j.docNo} totalLabel={`Total · ${plural(rows.length, "invoice", "invoices")}`} size="8.5pt"
@@ -177,7 +178,8 @@ export default function Deliveries() {
 }
 
 /** Choose the lorry (own) or the 3rd-party transporter and the route for the selected invoices. */
-function LoadModal({ count, onClose, onLoad }: { count: number; onClose: () => void; onLoad: (v: Vehicle, route: string) => Promise<Result> }) {
+function LoadModal({ count, sample, onClose, onLoad }: { count: number; sample: boolean; onClose: () => void; onLoad: (v: Vehicle, route: string) => Promise<Result> }) {
+  const { lorries } = useFleet(sample);
   const [kind, setKind] = useState<"own" | "third">("own");
   const [v, setV] = useState<Vehicle>({ kind: "own" });
   const [route, setRoute] = useState("");
@@ -189,7 +191,16 @@ function LoadModal({ count, onClose, onLoad }: { count: number; onClose: () => v
       </div>
       {kind === "own" ? (
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <label className="text-sm font-medium text-slate-700">Lorry number<input className={inputCls} value={v.lorryNo ?? ""} onChange={(e) => setV({ ...v, lorryNo: e.target.value })} /></label>
+          {lorries.length ? (
+            <label className="text-sm font-medium text-slate-700">Lorry
+              <select className={inputCls} value={v.lorryNo ?? ""} onChange={(e) => { const l = lorries.find((x) => x.no === e.target.value); setV({ ...v, lorryNo: e.target.value, driver: v.driver || l?.driver || "" }); }}>
+                <option value="">Pick a lorry…</option>
+                {[...lorries].sort((a, b) => Number(canLoad(b.condition)) - Number(canLoad(a.condition)) || a.no.localeCompare(b.no)).map((l) => <option key={l.no} value={l.no} disabled={!canLoad(l.condition)}>{l.no} · {l.size}{l.pallets != null ? `, ${l.pallets} pallets` : ""}{l.condition !== "Good" ? ` · ${l.condition.toLowerCase()}` : ""}</option>)}
+              </select>
+              {lorries.find((x) => x.no === v.lorryNo)?.condition === "Needs service" && <span className="mt-1 block text-xs text-amber-700">This lorry is due a service: {lorries.find((x) => x.no === v.lorryNo)?.notes || "check it before the trip"}.</span>}
+              {(() => { const l = lorries.find((x) => x.no === v.lorryNo); const w = l ? warnings(l).filter((x) => x.state === "expired") : []; return w.length ? <span className="mt-1 block text-xs text-rose-700">{w.map((x) => `${x.label} expired`).join(", ")}: it should not be on the road.</span> : null; })()}
+            </label>
+          ) : <label className="text-sm font-medium text-slate-700">Lorry number<input className={inputCls} value={v.lorryNo ?? ""} onChange={(e) => setV({ ...v, lorryNo: e.target.value })} /></label>}
           <label className="text-sm font-medium text-slate-700">Driver<input className={inputCls} value={v.driver ?? ""} onChange={(e) => setV({ ...v, driver: e.target.value })} /></label>
         </div>
       ) : (

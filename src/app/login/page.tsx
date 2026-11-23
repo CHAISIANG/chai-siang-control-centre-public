@@ -1,9 +1,10 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Loader2, Lock, Mail } from "lucide-react";
+import { ArrowRight, Loader2, Lock, UserRound } from "lucide-react";
 import CleanGlassCanvas from "@/components/portal/CleanGlassCanvas";
 import { useAuth } from "@/components/auth";
+import { toLoginEmail, validCode } from "@/lib/staffLogin";
 
 export default function LoginPage() {
   const { signIn } = useAuth();
@@ -15,9 +16,12 @@ export default function LoginPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    const id = email.trim();
+    if (!id.includes("@") && !validCode(id)) { setError("Enter your email, or your staff code (letters and numbers only)."); return; }
     setBusy(true); setError(null);
-    const err = await signIn(email.trim(), password);
-    if (err) setError(err); else router.replace("/");
+    const err = await signIn(toLoginEmail(id), password);
+    // the same message for both, so nobody can tell which staff codes exist
+    if (err) setError(/invalid login/i.test(err) ? "That email or staff code and password do not match." : err); else router.replace("/");
     setBusy(false);
   }
 
@@ -36,8 +40,8 @@ export default function LoginPage() {
         </div>
         <form onSubmit={submit} className="pl-fade rounded-lg border border-white/15 bg-white/[0.07] p-6 shadow-2xl shadow-black/30 backdrop-blur-[16px]" style={{ "--i": 3 } as React.CSSProperties}>
           <h2 className="font-display text-3xl font-semibold">Sign in</h2>
-          <label className="mt-4 block text-sm font-medium text-white/80">Email
-            <span className="relative mt-1.5 block"><Mail size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50" /><input className={field} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></span>
+          <label className="mt-4 block text-sm font-medium text-white/80">Email or staff code
+            <span className="relative mt-1.5 block"><UserRound size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50" /><input className={field} type="text" inputMode="email" autoCapitalize="none" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" placeholder="name@company.com or 10023" /></span>
           </label>
           <label className="mt-4 block text-sm font-medium text-white/80">Password
             <span className="relative mt-1.5 block"><Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50" /><input className={field} type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" /></span>

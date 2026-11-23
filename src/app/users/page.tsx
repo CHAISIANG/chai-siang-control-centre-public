@@ -5,6 +5,8 @@ import { useAuth, type RoleInfo } from "@/components/auth";
 import { useData } from "@/components/data";
 import { Badge, Card, PageHeader, Td, Th } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
+import { staffCodeOf, staffEmail } from "@/lib/staffLogin";
+import { StaffLoginForm, type NewStaffLogin, type StaffPick } from "@/components/users/StaffLoginForm";
 
 type UserRow = { id: string; email: string; full_name: string | null; role: string; salesman_code: string | null; active: boolean; protected: boolean; last_sign_in_at: string | null; confirmed: boolean };
 type Draft = { full_name: string; role: string; salesman_code: string; active: boolean; password: string };
@@ -42,14 +44,18 @@ export default function UsersPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<"email" | "staff">("email");
+  const [staff, setStaff] = useState<{ code: string; name: string; position: string; email: string | null }[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const [r, list] = await Promise.all([
+      const [r, list, hr] = await Promise.all([
         supabase.from("roles").select("name, label, is_super, is_system, sort").order("sort"),
         callAdmin<{ users: UserRow[] }>({ action: "list" }),
+        supabase.from("hr_employees").select("code, name, position, email").eq("active", true).order("code"),
       ]);
       setRoles((r.data ?? []) as RoleInfo[]);
+      setStaff((hr.data ?? []) as typeof staff);
       setUsers(list.users);
       setError(null);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load users."); }
@@ -68,6 +74,17 @@ export default function UsersPage() {
     setBusy(true); setError(null); setNotice(null);
     try { await fn(); setNotice(ok); await load(); } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong."); }
     setBusy(false);
+  }
+
+  // who already has a login: by their staff code login, or by the email on their HR record
+  const logins = new Set(users.map((u) => u.email.toLowerCase()));
+  const picks: StaffPick[] = staff.map((s) => ({ ...s, hasLogin: logins.has(staffEmail(s.code)) || (!!s.email && logins.has(s.email.toLowerCase())) }));
+
+  async function createStaff(x: NewStaffLogin) {
+    await run(async () => {
+      await callAdmin({ action: "create", email: staffEmail(x.code), staff_code: x.code, full_name: x.full_name, password: x.password, role: x.role, salesman_code: x.salesman_code || null });
+      setAdding(false);
+    }, `Created a login for ${x.full_name}. They sign in with staff code ${x.code} and the password ${x.password}. They can change it on My account.`);
   }
 
   async function create() {
@@ -90,6 +107,10 @@ export default function UsersPage() {
 
       {adding && (
         <Card title="New user" className="mb-5">
+          <div className="mb-4 inline-flex rounded-md border border-slate-300 p-0.5 text-sm" role="radiogroup" aria-label="Signs in with">
+            {([["email", "Signs in with email"], ["staff", "Signs in with staff code (no email)"]] as const).map(([k, l]) => <button key={k} role="radio" aria-checked={mode === k} onClick={() => setMode(k)} className={`rounded px-3 py-1.5 ${mode === k ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{l}</button>)}
+          </div>
+          {mode === "staff" ? <StaffLoginForm staff={picks} roles={assignable} salesmen={salesmen} password={newPassword()} newPassword={newPassword} busy={busy} onCreate={(x) => void createStaff(x)} onCancel={() => setAdding(false)} /> : <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <label className="text-sm font-medium text-slate-600">Name<input className={sel} value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></label>
             <label className="text-sm font-medium text-slate-600">Email<input className={sel} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
@@ -110,6 +131,7 @@ export default function UsersPage() {
             <button disabled={busy || !form.email || !form.full_name} onClick={() => void create()} className="rounded-md bg-indigo-600 px-4 py-2 text-base font-medium text-white hover:bg-indigo-700 disabled:opacity-40">{busy ? "Creating…" : "Create user"}</button>
             <button onClick={() => setAdding(false)} className="rounded-md border border-slate-300 px-4 py-2 text-base hover:bg-slate-100">Cancel</button>
           </div>
+          </>}
         </Card>
       )}
 
@@ -125,7 +147,7 @@ export default function UsersPage() {
                   <tr key={u.id} className="border-b border-slate-100 align-top last:border-0">
                     <Td first>
                       {editing ? <input className={sel} value={draft.full_name} onChange={(e) => setDraft({ ...draft, full_name: e.target.value })} aria-label="Name" /> : <><b>{u.full_name ?? "—"}</b>{me && <span className="ml-2"><Badge tone="blue">You</Badge></span>}</>}
-                      <div className="text-sm text-slate-500">{u.email}</div>
+                      <div className="text-sm text-slate-500">{staffCodeOf(u.email) ? `Staff code ${staffCodeOf(u.email)} (no email)` : u.email}</div>
                     </Td>
                     <Td>
                       {u.protected ? <Badge tone="amber">Super admin · protected</Badge> : editing ? (
@@ -146,7 +168,7 @@ export default function UsersPage() {
                       {editing && !me ? (
                         <label className="flex items-center gap-2"><input className="h-5 w-5" type="checkbox" checked={draft.active} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} /> Active</label>
                       ) : <Badge tone={u.active ? "green" : "grey"}>{u.active ? "Active" : "Switched off"}</Badge>}
-                      {!u.confirmed && <div className="mt-1 text-sm text-amber-700">Email not confirmed</div>}
+                      {!u.confirmed && !staffCodeOf(u.email) && <div className="mt-1 text-sm text-amber-700">Email not confirmed</div>}
                     </Td>
                     <Td>{when(u.last_sign_in_at)}</Td>
                     <Td>

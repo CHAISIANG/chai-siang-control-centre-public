@@ -108,12 +108,30 @@ Deno.serve(async (req) => {
     if (!rn.ok) return json({ error: "That role does not exist." }, 400);
     if (rn.needs && !salesman) return json({ error: "This role only sees its own customers, so pick which salesman this person is." }, 400);
 
+    // A staff code login: someone with no email signs in with their employee code. Their login address is private
+    // (on the reserved ".invalid" domain, so no mail can ever go there) and is written onto their HR record.
+    const staffCode = body.staff_code ? String(body.staff_code).trim().toUpperCase() : null;
+    const STAFF_DOMAIN = "staff.chaisiang.invalid";
+    let staffId: string | null = null;
+    if (staffCode) {
+      if (!/^[A-Z0-9]{2,20}$/.test(staffCode)) return json({ error: "The staff code must be letters and numbers only." }, 400);
+      if (email !== `${staffCode.toLowerCase()}@${STAFF_DOMAIN}`) return json({ error: "The login address does not match the staff code." }, 400);
+      const { data: emp } = await admin.from("hr_employees").select("id, active, profile_id").eq("code", staffCode).maybeSingle();
+      if (!emp) return json({ error: `There is no employee ${staffCode} in HR › Employees.` }, 400);
+      if (!emp.active) return json({ error: `Employee ${staffCode} is marked as left.` }, 400);
+      if (emp.profile_id) return json({ error: `Employee ${staffCode} already has a login.` }, 400);
+      staffId = emp.id;
+    } else if (email.endsWith(`@${STAFF_DOMAIN}`)) {
+      return json({ error: "Use “Signs in with staff code” for this." }, 400);
+    }
+
     const { data: created, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: fullName } });
-    if (error || !created.user) return json({ error: error?.message ?? "Could not create the login." }, 400);
+    if (error || !created.user) return json({ error: /already|registered|exists/i.test(error?.message ?? "") && staffCode ? `Staff code ${staffCode} already has a login.` : error?.message ?? "Could not create the login." }, 400);
     const { error: pErr } = await admin.from("profiles").upsert({ id: created.user.id, full_name: fullName, role, salesman_code: salesman, active: true });
-    if (pErr) {
+    const { error: hErr } = pErr || !staffId ? { error: null } : await admin.from("hr_employees").update({ email, profile_id: created.user.id, updated_at: new Date().toISOString() }).eq("id", staffId);
+    if (pErr || hErr) {
       await admin.auth.admin.deleteUser(created.user.id);
-      return json({ error: pErr.message }, 400);
+      return json({ error: (pErr ?? hErr)!.message }, 400);
     }
     return json({ ok: true, id: created.user.id });
   }

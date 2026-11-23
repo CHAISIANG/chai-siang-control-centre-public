@@ -4,7 +4,7 @@
 // Sample mode (the preview page) keeps made-up data in this browser with a reset.
 import { createContext, createElement, useContext, useSyncExternalStore, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
-import { docFromFileName, EXC_KINDS, CAUSES, DECISIONS, type Cause, type DamagedItem, type DeliveryException, type DeliveryJob, type Decision, type DocCase, type ExcKind, type Status, type Vehicle } from "./rules";
+import { docFromFileName, EXC_DOC_KINDS, EXC_KINDS, CAUSES, DECISIONS, type Cause, type DamagedItem, type DeliveryException, type DeliveryJob, type Decision, type DocCase, type ExcDoc, type ExcDocKind, type ExcKind, type Status, type Vehicle } from "./rules";
 import { SAMPLE_DAMAGED, SAMPLE_EXCEPTIONS, SAMPLE_JOBS } from "./sample";
 
 export type DeliveryState = { jobs: DeliveryJob[]; exceptions: DeliveryException[]; damaged: DamagedItem[]; loading?: boolean };
@@ -15,7 +15,7 @@ const SampleMode = createContext(false);
 export function DeliverySample({ children }: { children: ReactNode }) { return createElement(SampleMode.Provider, { value: true }, children); }
 export function useDeliverySample() { return useContext(SampleMode); }
 
-const KEY = "cssb.delivery.sample.v1";
+const KEY = "cssb.delivery.sample.v2";
 const myt = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(d).replace(",", "");
 const stamp = () => myt(new Date());
 const day = () => stamp().slice(0, 10);
@@ -47,13 +47,13 @@ let live: DeliveryState = { jobs: [], exceptions: [], damaged: [], loading: true
 let liveStarted = false;
 type EventRow = { id: number; at: string; status: Status; by_name: string | null; note: string | null };
 type JobRow = { doc_no: string; doc_date: string | null; customer: string; customer_name: string | null; agent: string | null; amount: number | string; doc_case: DocCase; status: Status; vehicle: Vehicle | null; route: string | null; pod_path: string | null; pod_file: string | null; fail_reason: string | null; delivery_events: EventRow[] };
-type ExcRow = { id: string; doc_no: string; kind: ExcKind; detail: string; qty: number | null; note_no: string | null; status: "Open" | "Resolved"; by_name: string | null; at: string; resolution: string | null; resolved_at: string | null };
+type ExcRow = { id: string; doc_no: string; kind: ExcKind; detail: string; qty: number | null; note_no: string | null; status: "Open" | "Resolved"; by_name: string | null; at: string; resolution: string | null; resolved_at: string | null; delivery_exception_docs?: { id: string; kind: ExcDocKind; number: string | null; file_name: string; path: string; by_name: string | null; at: string }[] };
 type DmgRow = { id: string; found_on: string; item_code: string; description: string | null; qty: number | string; uom: string; zone: string; cause: Cause; photo_path: string | null; by_name: string | null; decision: Decision | null; decided_by: string | null; decided_on: string | null; note: string | null };
 
 export async function reloadDelivery() {
   const [j, e, d] = await Promise.all([
     supabase.from("delivery_jobs").select("doc_no, doc_date, customer, customer_name, agent, amount, doc_case, status, vehicle, route, pod_path, pod_file, fail_reason, delivery_events(id, at, status, by_name, note)").order("doc_date", { ascending: false }).limit(3000),
-    supabase.from("delivery_exceptions").select("id, doc_no, kind, detail, qty, note_no, status, by_name, at, resolution, resolved_at").order("at", { ascending: false }).limit(1000),
+    supabase.from("delivery_exceptions").select("id, doc_no, kind, detail, qty, note_no, status, by_name, at, resolution, resolved_at, delivery_exception_docs(id, kind, number, file_name, path, by_name, at)").order("at", { ascending: false }).limit(1000),
     supabase.from("damaged_stock").select("id, found_on, item_code, description, qty, uom, zone, cause, photo_path, by_name, decision, decided_by, decided_on, note").order("found_on", { ascending: false }).limit(1000),
   ]);
   live = {
@@ -62,7 +62,8 @@ export async function reloadDelivery() {
       docCase: r.doc_case, status: r.status, vehicle: r.vehicle ?? undefined, route: r.route ?? undefined, podFile: r.pod_file ?? undefined, podPath: r.pod_path ?? undefined, failReason: r.fail_reason ?? undefined,
       events: [...(r.delivery_events ?? [])].sort((a, b) => a.id - b.id).map((x) => ({ at: myt(new Date(x.at)), status: x.status, by: x.by_name ?? "", note: x.note ?? undefined })),
     })),
-    exceptions: ((e.data ?? []) as ExcRow[]).map((r): DeliveryException => ({ id: r.id, docNo: r.doc_no, kind: r.kind, detail: r.detail, qty: r.qty == null ? undefined : Number(r.qty), noteNo: r.note_no ?? undefined, status: r.status, by: r.by_name ?? "", at: r.at, resolution: r.resolution ?? undefined, resolvedAt: r.resolved_at ?? undefined })),
+    exceptions: ((e.data ?? []) as ExcRow[]).map((r): DeliveryException => ({ id: r.id, docNo: r.doc_no, kind: r.kind, detail: r.detail, qty: r.qty == null ? undefined : Number(r.qty), noteNo: r.note_no ?? undefined, status: r.status, by: r.by_name ?? "", at: r.at, resolution: r.resolution ?? undefined, resolvedAt: r.resolved_at ?? undefined,
+      docs: (r.delivery_exception_docs ?? []).map((d): ExcDoc => ({ id: d.id, kind: d.kind, number: d.number ?? undefined, file: d.file_name, path: d.path, at: d.at, by: d.by_name ?? "" })) })),
     damaged: ((d.data ?? []) as DmgRow[]).map((r): DamagedItem => ({ id: r.id, foundOn: r.found_on, itemCode: r.item_code, description: r.description ?? "", qty: Number(r.qty), uom: r.uom, zone: r.zone, cause: r.cause, photo: r.photo_path ? r.photo_path.split("/").pop() : undefined, by: r.by_name ?? "", decision: r.decision ?? undefined, decidedBy: r.decided_by ?? undefined, decidedOn: r.decided_on ?? undefined, note: r.note ?? undefined })),
   };
   ping();
@@ -192,19 +193,69 @@ export async function podLink(path: string): Promise<string | null> {
   return data?.signedUrl ?? null;
 }
 
-export async function logException(useSample: boolean, docNo: string, kind: ExcKind, detail: string, qty: number | undefined, noteNo: string, by: string): Promise<Result> {
+export async function logException(useSample: boolean, docNo: string, kind: ExcKind, detail: string, qty: number | undefined, noteNo: string, by: string, docs: NewExcDoc[] = []): Promise<Result> {
   if (!cur(useSample).jobs.some((j) => j.docNo === docNo)) return fail("Choose an invoice from the delivery list.");
   if (!EXC_KINDS.includes(kind)) return fail("Choose the kind of exception.");
   if (!detail.trim()) return fail("Describe what happened.");
+  const bad = checkExcDocs(docs); if (bad) return fail(bad);
   const done: Result = { ok: true, text: `Exception logged for ${docNo}.` };
   if (!useSample) {
-    const { error } = await supabase.rpc("delivery_exception_log", { p_doc: docNo, p_kind: kind, p_detail: detail.trim(), p_qty: qty ?? null, p_note_no: noteNo.trim() || null });
+    const { data: newId, error } = await supabase.rpc("delivery_exception_log", { p_doc: docNo, p_kind: kind, p_detail: detail.trim(), p_qty: qty ?? null, p_note_no: noteNo.trim() || null });
+    if (error) { await reloadDelivery(); return dbFail(error); }
+    if (docs.length) {
+      const r = await uploadExcDocs(String(newId), docs);
+      await reloadDelivery();
+      return r.ok ? { ok: true, text: `Exception logged for ${docNo}, with ${plural(docs.length, "document", "documents")}.` } : { ok: false, text: `The exception is logged, but the documents were not kept: ${r.text} Add them again with the paperclip.` };
+    }
     await reloadDelivery();
-    return error ? dbFail(error) : done;
+    return done;
   }
-  setSample({ ...sample, exceptions: [{ id: uid(), docNo, kind, detail: detail.trim(), qty, noteNo: noteNo.trim() || undefined, status: "Open", by, at: day() }, ...sample.exceptions] });
+  setSample({ ...sample, exceptions: [{ id: uid(), docNo, kind, detail: detail.trim(), qty, noteNo: noteNo.trim() || undefined, status: "Open", by, at: day(),
+    docs: docs.map((d) => ({ id: uid(), kind: d.kind, number: d.number.trim() || undefined, file: d.file.name, at: day(), by })) }, ...sample.exceptions] });
+  return docs.length ? { ok: true, text: `Exception logged for ${docNo}, with ${plural(docs.length, "document", "documents")}.` } : done;
+}
+/** A paper to keep with an exception: what it is, its number (for a credit or debit note or GRN) and the photo or scan. */
+export type NewExcDoc = { kind: ExcDocKind; number: string; file: File };
+const MAX_DOC_MB = 10;
+/** Check the papers before anything is saved. */
+export function checkExcDocs(docs: NewExcDoc[]): string | null {
+  for (const d of docs) {
+    if (!EXC_DOC_KINDS.includes(d.kind)) return "Choose what each document is.";
+    if (!/^(image\/|application\/pdf$)/.test(d.file.type) && !/\.(pdf|jpe?g|png|heic|webp)$/i.test(d.file.name)) return `${d.file.name}: only photos and PDF scans can be kept.`;
+    if (d.file.size > MAX_DOC_MB * 1024 * 1024) return `${d.file.name} is over ${MAX_DOC_MB} MB.`;
+    if ((d.kind === "Credit note" || d.kind === "Debit note" || d.kind === "GRN") && !d.number.trim()) return `Enter the ${d.kind} number for ${d.file.name}.`;
+  }
+  return null;
+}
+/** Keep papers with an exception (open or settled). In the app the files go to private storage; the sample keeps their names. */
+export async function addExceptionDocs(useSample: boolean, id: string, docs: NewExcDoc[], by: string): Promise<Result> {
+  if (!docs.length) return fail("Choose at least one photo or scan.");
+  const bad = checkExcDocs(docs); if (bad) return fail(bad);
+  const done: Result = { ok: true, text: `${plural(docs.length, "document", "documents")} kept with the exception.` };
+  if (!useSample) { const r = await uploadExcDocs(id, docs); await reloadDelivery(); return r.ok ? done : r; }
+  const add: ExcDoc[] = docs.map((d) => ({ id: uid(), kind: d.kind, number: d.number.trim() || undefined, file: d.file.name, at: day(), by }));
+  setSample({ ...sample, exceptions: sample.exceptions.map((e) => (e.id === id ? { ...e, docs: [...(e.docs ?? []), ...add], noteNo: e.noteNo ?? add.find((x) => x.kind !== "Photo" && x.kind !== "Other" && x.number)?.number } : e)) });
   return done;
 }
+/** Upload the files into the exception's folder, then have the database record them (it checks each one). */
+async function uploadExcDocs(id: string, docs: NewExcDoc[]): Promise<Result> {
+  const items: { kind: ExcDocKind; number: string; file: string; path: string }[] = [];
+  for (const d of docs) {
+    const safe = d.file.name.replace(/[^A-Za-z0-9._-]+/g, "_").slice(-80);
+    const path = `${id}/${uid()}-${safe}`;
+    const up = await supabase.storage.from("exception-docs").upload(path, d.file, { upsert: false, contentType: d.file.type || undefined });
+    if (up.error) return fail(`${d.file.name} could not be uploaded: ${up.error.message}`);
+    items.push({ kind: d.kind, number: d.number.trim(), file: d.file.name, path });
+  }
+  const { error } = await supabase.rpc("delivery_exception_docs_add", { p_id: id, p_docs: items });
+  return error ? dbFail(error) : { ok: true, text: "" };
+}
+/** A short-lived link to open a kept document. */
+export async function excDocLink(path: string): Promise<string | null> {
+  const { data } = await supabase.storage.from("exception-docs").createSignedUrl(path, 300);
+  return data?.signedUrl ?? null;
+}
+
 export async function resolveException(useSample: boolean, id: string, resolution: string, noteNo: string): Promise<Result> {
   if (!resolution.trim()) return fail("Say how it was settled.");
   const done: Result = { ok: true, text: "Marked as settled." };

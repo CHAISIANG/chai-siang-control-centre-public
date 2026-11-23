@@ -26,7 +26,11 @@ export const vehicleText = (v?: Vehicle) => (!v ? "" : v.kind === "own" ? `${v.l
 
 export const EXC_KINDS = ["Rejected goods", "Short delivery", "Refused to sign", "Damaged or leaking on arrival", "Wrong item", "Document lost", "Customer closed", "3rd-party failure"] as const;
 export type ExcKind = (typeof EXC_KINDS)[number];
-export type DeliveryException = { id: string; docNo: string; kind: ExcKind; detail: string; qty?: number; noteNo?: string; status: "Open" | "Resolved"; by: string; at: string; resolution?: string; resolvedAt?: string };
+/** Papers kept with an exception: the credit or debit note, the GRN, photos of the goods or the signed document. */
+export const EXC_DOC_KINDS = ["Credit note", "Debit note", "GRN", "Photo", "Other"] as const;
+export type ExcDocKind = (typeof EXC_DOC_KINDS)[number];
+export type ExcDoc = { id: string; kind: ExcDocKind; number?: string; file: string; path?: string; at: string; by: string };
+export type DeliveryException = { id: string; docNo: string; kind: ExcKind; detail: string; qty?: number; noteNo?: string; status: "Open" | "Resolved"; by: string; at: string; resolution?: string; resolvedAt?: string; docs?: ExcDoc[] };
 
 export const CAUSES = ["Crushed", "Leaking", "Wet", "Expired", "Other"] as const;
 export const DECISIONS = ["Return to principal", "Claim", "Rework", "Write-off"] as const;

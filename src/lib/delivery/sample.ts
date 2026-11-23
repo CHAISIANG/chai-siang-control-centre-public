@@ -28,7 +28,8 @@ export const SAMPLE_JOBS: DeliveryJob[] = [
 
 export const SAMPLE_EXCEPTIONS: DeliveryException[] = [
   { id: "x1", docNo: "S900213", kind: "Customer closed", detail: "Shop was closed at 3pm. Called the owner, no answer. Goods came back.", status: "Open", by: "Sample Clerk", at: "2026-11-19" },
-  { id: "x2", docNo: "S900211", kind: "Short delivery", detail: "2 cartons of Item A short; customer signed for the quantity received.", qty: 2, noteNo: "CN-SAMPLE-001", status: "Resolved", by: "Sample Clerk", at: "2026-11-18", resolution: "Credit note raised and sent.", resolvedAt: "2026-11-19" },
+  { id: "x2", docNo: "S900211", kind: "Short delivery", detail: "2 cartons of Item A short; customer signed for the quantity received.", qty: 2, noteNo: "CN-SAMPLE-001", status: "Resolved", by: "Sample Clerk", at: "2026-11-18", resolution: "Credit note raised and sent.", resolvedAt: "2026-11-19",
+    docs: [{ id: "f1", kind: "Photo", file: "short-delivery.jpg", at: "2026-11-18", by: "Sample Clerk" }, { id: "f2", kind: "Credit note", number: "CN-SAMPLE-001", file: "CN-SAMPLE-001.pdf", at: "2026-11-19", by: "Sample Clerk" }] },
 ];
 
 export const SAMPLE_DAMAGED: DamagedItem[] = [

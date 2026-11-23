@@ -1,78 +1,31 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Download, UploadCloud } from "lucide-react";
-import { readSheet } from "read-excel-file/browser";
+import { useMemo, useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import { Badge, Card, Kpi, KpiStrip, PageHeader, Plate, Td, Th } from "@/components/ui";
-import { useData } from "@/components/data";
 import { useRole } from "@/components/role";
-import { supabase } from "@/lib/supabase";
 import Link from "next/link";
-import { LORRY_STATUSES, pct, type Lorry, type LorryStatus } from "@/lib/mock";
+import { pct } from "@/lib/mock";
 import { STATUSES, statusTone, vehicleText, type Status } from "@/lib/delivery/rules";
 import { useDelivery, useDeliverySample } from "@/lib/delivery/store";
+import { canLoad, cleanPlate, conditionTone, useFleet, warnings } from "@/lib/fleet";
 
-const TEMPLATE_HEADERS = ["Lorry No", "Driver", "Route", "Remark", "Invoices Loaded", "Load %"];
-const TEMPLATE_URL = "/templates/Lorry%20Status%20Template.xlsx";
-
-const statusStyle: Record<LorryStatus, { badge: "green" | "amber" | "blue"; bar: string; ring: string; label: string }> = {
-  "On duty": { badge: "green", bar: "bg-emerald-500", ring: "border-l-emerald-600", label: "Out delivering" },
-  Loading: { badge: "amber", bar: "bg-amber-500", ring: "border-l-amber-500", label: "Being loaded" },
-  Empty: { badge: "blue", bar: "bg-sky-500", ring: "border-l-sky-600", label: "Back & empty" },
+const money = (n: number) => n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Where a lorry is today, worked out from its deliveries and its condition. */
+type Where = "Out delivering" | "Back, POD missing" | "Free" | "Not available";
+const WHERE: Where[] = ["Out delivering", "Back, POD missing", "Free", "Not available"];
+const whereStyle: Record<Where, { ring: string; sub: string }> = {
+  "Out delivering": { ring: "border-l-emerald-600", sub: "Invoices still to deliver" },
+  "Back, POD missing": { ring: "border-l-amber-500", sub: "Delivered, scans to upload" },
+  Free: { ring: "border-l-sky-600", sub: "Ready to load" },
+  "Not available": { ring: "border-l-rose-600", sub: "In workshop or off road" },
 };
 
-type ImportResult = { fileName: string; ok: Lorry[]; errors: string[]; headerError?: string };
-
-async function parseLorryFile(file: File): Promise<ImportResult> {
-  const result: ImportResult = { fileName: file.name, ok: [], errors: [] };
-  let rows: unknown[][];
-  try {
-    rows = (await readSheet(file)) as unknown[][];
-  } catch {
-    result.headerError = "This file could not be read as an Excel (.xlsx) file.";
-    return result;
-  }
-  const header = (rows[0] ?? []).map((h) => String(h ?? "").trim());
-  const missing = TEMPLATE_HEADERS.filter((h, i) => header[i]?.toLowerCase() !== h.toLowerCase());
-  if (missing.length) {
-    result.headerError = `Header row does not match the template. Expected: ${TEMPLATE_HEADERS.join(" | ")}. Found: ${header.filter(Boolean).join(" | ") || "(empty)"}.`;
-    return result;
-  }
-  const seen = new Set<string>();
-  rows.slice(1).forEach((r, idx) => {
-    const line = idx + 2;
-    if (r.every((c) => c === null || c === undefined || String(c).trim() === "")) return;
-    const lorryNo = String(r[0] ?? "").trim().toUpperCase();
-    const status = LORRY_STATUSES.find((s) => s.toLowerCase() === String(r[3] ?? "").trim().toLowerCase());
-    const invoices = Number(r[4] ?? 0);
-    const loadPct = Number(r[5] ?? 0);
-    const problems: string[] = [];
-    if (!lorryNo) problems.push("Lorry No is empty");
-    else if (seen.has(lorryNo)) problems.push(`duplicate lorry ${lorryNo}`);
-    if (!status) problems.push(`Remark "${String(r[3] ?? "")}" must be one of ${LORRY_STATUSES.join(" / ")}`);
-    if (!Number.isFinite(invoices) || invoices < 0) problems.push("Invoices Loaded must be a number ≥ 0");
-    if (!Number.isFinite(loadPct) || loadPct < 0 || loadPct > 100) problems.push("Load % must be 0–100");
-    if (problems.length) {
-      result.errors.push(`Row ${line}: ${problems.join("; ")}`);
-      return;
-    }
-    seen.add(lorryNo);
-    result.ok.push({ lorryNo, driver: String(r[1] ?? "").trim() || "—", route: String(r[2] ?? "").trim() || "—", status: status!, invoices, loadPct });
-  });
-  return result;
-}
-
 export default function Logistics() {
-  const { lorries, reloadLorries } = useData();
   const { can } = useRole();
   const sample = useDeliverySample();
   const { jobs } = useDelivery(sample, can("page_logistics"));
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [filter, setFilter] = useState<LorryStatus | "All">("All");
-  const [result, setResult] = useState<ImportResult | null>(null);
-  const [applied, setApplied] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
+  const { lorries } = useFleet(sample);
+  const [filter, setFilter] = useState<Where | "All">("All");
 
   // Deliveries come from the delivery tracking, not from a sample.
   const todayMYT = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur" }).format(new Date());
@@ -96,116 +49,64 @@ export default function Logistics() {
   }, [jobs]);
   const NEXT: Record<Status, string> = { Invoiced: "Pick it", Picked: "Load it", Loaded: "Out for delivery", Delivered: "Scan the POD", Completed: "", Failed: "Plan again" };
   const pending = jobs.filter((j) => j.status !== "Completed").map((j) => ({ ...j, age: Math.max(0, dayDiff(todayMYT, j.docDate || todayMYT)) })).sort((a, b) => b.age - a.age).slice(0, 25);
-  const count = (s: LorryStatus) => lorries.filter((l) => l.status === s).length;
-  const shown = lorries.filter((l) => filter === "All" || l.status === filter);
-
-  async function applyImport(rows: Lorry[]) {
-    setSaving(true); setSaveError(null);
-    const { error } = await supabase.from("lorries").upsert(rows.map((r) => ({ lorry_no: r.lorryNo, driver: r.driver, route: r.route, status: r.status, invoices: r.invoices, load_pct: r.loadPct, updated_at: new Date().toISOString() })));
-    if (!error) {
-      const gone = lorries.map((x) => x.lorryNo).filter((n) => !rows.some((r) => r.lorryNo === n));
-      if (gone.length) { const del = await supabase.from("lorries").delete().in("lorry_no", gone); if (del.error) { setSaveError(del.error.message); setSaving(false); return; } }
-      await reloadLorries();
-      setFilter("All"); setApplied(true);
-    } else setSaveError(error.message);
-    setSaving(false);
-  }
-
-  async function onFile(f?: File | null) {
-    if (!f) return;
-    setBusy(true);
-    setApplied(false);
-    setResult(await parseLorryFile(f));
-    setBusy(false);
-    if (input.current) input.current.value = "";
-  }
+  // each lorry on the list with what is on it right now (loaded, or delivered with the scan still to upload)
+  const board = lorries.map((l) => {
+    const on = jobs.filter((j) => j.vehicle?.kind === "own" && cleanPlate(j.vehicle.lorryNo ?? "") === l.no && (j.status === "Loaded" || j.status === "Delivered"));
+    const loaded = on.filter((j) => j.status === "Loaded").length, podMissing = on.filter((j) => j.status === "Delivered").length;
+    const where: Where = !canLoad(l.condition) ? "Not available" : loaded ? "Out delivering" : podMissing ? "Back, POD missing" : "Free";
+    const drivers = [...new Set(on.map((j) => j.vehicle?.driver).filter(Boolean))], routes = [...new Set(on.map((j) => j.route).filter(Boolean))];
+    return { l, where, loaded, podMissing, amount: on.reduce((t, j) => t + j.amount, 0), driver: drivers.join(", ") || l.driver, route: routes.join(", "), papers: warnings(l).filter((w) => w.state === "expired") };
+  }).sort((a, b) => WHERE.indexOf(a.where) - WHERE.indexOf(b.where) || b.loaded - a.loaded || a.l.no.localeCompare(b.l.no));
+  const third = jobs.filter((j) => j.vehicle?.kind === "third" && (j.status === "Loaded" || j.status === "Delivered"));
+  const count = (w: Where) => board.filter((b) => b.where === w).length;
+  const shown = board.filter((b) => filter === "All" || b.where === filter);
 
   return (
     <>
       <PageHeader title="Logistics · Daily Delivery Status" sub="Lorries, drivers and every invoice from picking to a scanned proof of delivery." right={<div className="flex flex-wrap gap-3 text-sm"><Link href="/logistics/deliveries" className="text-indigo-600 hover:underline">Deliveries</Link><Link href="/logistics/exceptions" className="text-indigo-600 hover:underline">Exceptions</Link><Link href="/logistics/damaged" className="text-indigo-600 hover:underline">Damaged stock</Link><Link href="/logistics/sop" className="text-indigo-600 hover:underline">Warehouse SOP</Link></div>} />
 
-      {/* Lorry status */}
-      <Card title="Lorry status" right={<span className="text-xs text-slate-500">{lorries.length} lorries in fleet</span>}>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {(["All", ...LORRY_STATUSES] as const).map((s) => {
-            const n = s === "All" ? lorries.length : count(s);
-            const active = filter === s;
+      {/* Lorries today: from the lorry list and the deliveries */}
+      <Card title="Lorries today" right={<div className="flex gap-3 text-sm"><Link href="/logistics/deliveries" className="text-indigo-600 hover:underline">Load a lorry</Link><Link href="/logistics/lorries" className="text-indigo-600 hover:underline">Manage lorries ({lorries.length})</Link></div>}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          {(["All", ...WHERE] as const).map((w) => {
+            const c = w === "All" ? board.length : count(w);
+            const active = filter === w;
             return (
-              <button key={s} onClick={() => setFilter(s)} className={`rounded-lg border p-3 text-left ${active ? "border-slate-900 bg-signal-soft" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
-                <div className="text-sm text-slate-500">{s === "All" ? "All lorries" : s}</div>
-                <div className="font-display text-[34px] font-semibold leading-tight text-slate-900">{n}</div>
-                <div className="text-sm text-slate-500">{s === "All" ? "in the fleet" : statusStyle[s].label}</div>
+              <button key={w} onClick={() => setFilter(w)} className={`rounded-lg border p-3 text-left ${active ? "border-slate-900 bg-signal-soft" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
+                <div className="text-sm text-slate-500">{w === "All" ? "All lorries" : w}</div>
+                <div className="font-display text-[34px] font-semibold leading-tight text-slate-900">{c}</div>
+                <div className="text-sm text-slate-500">{w === "All" ? "on the lorry list" : whereStyle[w].sub}</div>
               </button>
             );
           })}
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {shown.map((l) => {
-            const st = statusStyle[l.status];
-            return (
-              <div key={l.lorryNo} className={`rounded-lg border border-slate-200 border-l-4 bg-white p-3 ${st.ring}`}>
-                <div className="flex items-center justify-between">
-                  <Plate>{l.lorryNo}</Plate>
-                  <Badge tone={st.badge}>{l.status}</Badge>
-                </div>
-                <div className="mt-1 text-sm text-slate-700">{l.driver}</div>
-                <div className="text-xs text-slate-400">{l.route}</div>
-                <div className="mt-3 flex items-center justify-between text-xs text-slate-500"><span>{l.invoices} invoices</span><span>{l.loadPct}% load</span></div>
-                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full ${st.bar}`} style={{ width: `${l.loadPct}%` }} /></div>
+          {shown.map((b) => (
+            <Link key={b.l.no} href="/logistics/deliveries" className={`block rounded-lg border border-slate-200 border-l-4 bg-white p-3 hover:bg-slate-50 ${whereStyle[b.where].ring}`}>
+              <div className="flex items-center justify-between gap-2">
+                <Plate>{b.l.no}</Plate>
+                <Badge tone={conditionTone(b.l.condition)}>{b.l.condition}</Badge>
               </div>
-            );
-          })}
-          {!shown.length && <p className="col-span-full py-6 text-center text-sm text-slate-400">No lorries with this status.</p>}
+              <div className="mt-1 text-sm font-medium text-slate-800">{b.where}</div>
+              <div className="text-sm text-slate-600">{b.driver || "No driver set"}{b.route ? ` · ${b.route}` : ""}</div>
+              <div className="text-xs text-slate-400">{b.l.size}{b.l.pallets != null ? `, ${b.l.pallets} pallets` : ""}</div>
+              {(b.loaded > 0 || b.podMissing > 0) && <div className="mt-2 text-sm text-slate-700">{b.loaded} out · {b.podMissing} POD missing · RM {money(b.amount)}</div>}
+              {b.where === "Not available" && b.l.notes && <div className="mt-1 text-xs text-rose-700">{b.l.notes}</div>}
+              {b.papers.length > 0 && <div className="mt-1 flex items-center gap-1 text-xs text-rose-700"><TriangleAlert size={12} />{b.papers.map((w) => `${w.label} expired`).join(", ")}</div>}
+            </Link>
+          ))}
+          {third.length > 0 && (filter === "All" || filter === "Out delivering") && (
+            <div className="rounded-lg border border-slate-200 border-l-4 border-l-violet-500 bg-white p-3">
+              <div className="font-medium text-slate-900">3rd-party transporters</div>
+              <div className="mt-1 text-sm text-slate-700">{third.filter((j) => j.status === "Loaded").length} out · {third.filter((j) => j.status === "Delivered").length} POD missing</div>
+              <div className="text-sm text-slate-600">{[...new Set(third.map((j) => j.vehicle?.transporter).filter(Boolean))].join(", ")}</div>
+            </div>
+          )}
+          {!lorries.length && <p className="col-span-full py-6 text-center text-sm text-slate-500">No lorries on the list yet. <Link href="/logistics/lorries" className="text-indigo-600 hover:underline">Add them on the Lorries page.</Link></p>}
+          {lorries.length > 0 && !shown.length && <p className="col-span-full py-6 text-center text-sm text-slate-400">No lorries here right now.</p>}
         </div>
       </Card>
-
-      {can("lorries_manage") && (
-      <>
-      {/* Template + upload */}
-      <Card title="Update lorry status from Excel" className="mt-5" right={
-        <a href={TEMPLATE_URL} download className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"><Download size={14} /> Download template</a>
-      }>
-        <p className="mb-3 text-sm text-slate-600">
-          1) Download the template. 2) Fill one row per lorry (Remark is a drop-down, only {LORRY_STATUSES.join(" / ")}). 3) Upload it here. The columns must match exactly: <span className="font-mono text-xs">{TEMPLATE_HEADERS.join(" | ")}</span>.
-        </p>
-        <div
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); onFile(e.dataTransfer.files[0]); }}
-          className="flex flex-col items-center gap-2 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 py-6 text-center"
-        >
-          <UploadCloud className="text-slate-400" size={28} />
-          <p className="text-sm text-slate-700">Drop the filled template here, or</p>
-          <button onClick={() => input.current?.click()} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">{busy ? "Reading…" : "Choose .xlsx file"}</button>
-          <input ref={input} type="file" accept=".xlsx" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
-        </div>
-
-        {result && (
-          <div className="mt-4 space-y-3 text-sm">
-            <div className="text-xs text-slate-500">File: <b>{result.fileName}</b></div>
-            {result.headerError ? (
-              <div className="flex gap-2 rounded-md bg-rose-50 p-3 text-rose-800"><AlertTriangle size={16} className="mt-0.5 shrink-0" />{result.headerError}</div>
-            ) : (
-              <>
-                <div className="flex items-center gap-2 rounded-md bg-emerald-50 p-3 text-emerald-800"><CheckCircle2 size={16} />{result.ok.length} lorries ready to import{result.errors.length ? `, ${result.errors.length} row(s) skipped` : ""}.</div>
-                {result.errors.length > 0 && (
-                  <ul className="list-disc space-y-1 rounded-md bg-amber-50 p-3 pl-7 text-amber-900">{result.errors.map((e) => <li key={e}>{e}</li>)}</ul>
-                )}
-                {result.ok.length > 0 && !applied && (
-                  <button disabled={saving} onClick={() => void applyImport(result.ok)} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
-                    {saving ? "Saving…" : `Save to lorry board (replaces current ${lorries.length})`}
-                  </button>
-                )}
-                {saveError && <p role="alert" className="rounded-md bg-rose-50 p-3 text-rose-800">Could not save: {saveError}</p>}
-                {applied && <div className="font-medium text-emerald-700">Lorry board saved.</div>}
-              </>
-            )}
-          </div>
-        )}
-      </Card>
-
-      </>
-      )}
 
       {/* Delivery summary */}
       {sample && <p className="mt-5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">Sample deliveries, not real.</p>}

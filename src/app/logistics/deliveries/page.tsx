@@ -1,5 +1,5 @@
 "use client";
-import { canLoad, useFleet, warnings } from "@/lib/fleet";
+import { canLoad, cleanPlate, useFleet, warnings } from "@/lib/fleet";
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { FileSpreadsheet, Printer, Upload, X } from "lucide-react";
@@ -35,6 +35,9 @@ export default function Deliveries() {
   const me = profile?.full_name ?? "Warehouse";
   const [tab, setTab] = useState<"All" | Status>("All");
   const [q, setQ] = useState("");
+  // "" = every lorry, "third" = all 3rd-party transporters, otherwise one of our lorry plates
+  const [lorry, setLorry] = useState("");
+  const { lorries: fleet } = useFleet(sample);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -43,11 +46,21 @@ export default function Deliveries() {
   const files = useRef<HTMLInputElement>(null);
   const { pageStyle, print } = usePrintA4();
 
-  const count = (s: Status) => jobs.filter((j) => j.status === s).length;
+  const onLorry = (j: DeliveryJob) => !lorry || (lorry === "third" ? j.vehicle?.kind === "third" : j.vehicle?.kind === "own" && cleanPlate(j.vehicle.lorryNo ?? "") === lorry);
+  const mine = useMemo(() => jobs.filter(onLorry), [jobs, lorry]); // eslint-disable-line react-hooks/exhaustive-deps
+  const count = (s: Status) => mine.filter((j) => j.status === s).length;
   const tabbed = useMemo(() => {
     const k = q.trim().toLowerCase();
-    return jobs.filter((j) => (tab === "All" || j.status === tab) && (!k || `${j.docNo} ${j.customerName} ${j.customer}`.toLowerCase().includes(k)));
-  }, [jobs, tab, q]);
+    return mine.filter((j) => (tab === "All" || j.status === tab) && (!k || `${j.docNo} ${j.customerName} ${j.customer} ${vehicleText(j.vehicle)} ${j.route ?? ""}`.toLowerCase().includes(k)));
+  }, [mine, tab, q]);
+  // every lorry on the list, plus any plate typed on a delivery before the list existed; busiest (still on the road) first
+  const onRoad = (no: string) => jobs.filter((j) => j.vehicle?.kind === "own" && cleanPlate(j.vehicle.lorryNo ?? "") === no && (j.status === "Loaded" || j.status === "Delivered")).length;
+  const plates = [...new Set([...fleet.map((l) => l.no), ...jobs.filter((j) => j.vehicle?.kind === "own" && j.vehicle.lorryNo).map((j) => cleanPlate(j.vehicle!.lorryNo!))])]
+    .sort((a, b) => onRoad(b) - onRoad(a) || a.localeCompare(b));
+  const thirdCount = jobs.filter((j) => j.vehicle?.kind === "third" && (j.status === "Loaded" || j.status === "Delivered")).length;
+  const picked = fleet.find((l) => l.no === lorry);
+  const routes = [...new Set(mine.filter((j) => j.status === "Loaded" || j.status === "Delivered").map((j) => j.route).filter(Boolean))];
+  const drivers = [...new Set(mine.filter((j) => j.status === "Loaded" || j.status === "Delivered").map((j) => j.vehicle?.driver).filter(Boolean))];
   const grid = useGrid(tabbed, COLS, { id: "date", dir: -1 }, byDoc);
   const rows = grid.rows;
   const total = rows.reduce((s, j) => s + j.amount, 0);
@@ -102,12 +115,17 @@ export default function Deliveries() {
               {TABS.map((t) => (
                 <button key={t} role="tab" aria-selected={tab === t} onClick={() => { setTab(t); setSel(new Set()); }} title={t === "All" ? "" : STATUS_HELP[t]}
                   className={`rounded-md border px-3 py-1.5 text-sm font-medium ${tab === t ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-100"}`}>
-                  {t === "Delivered" ? "POD missing" : t} <span className="opacity-70">{t === "All" ? jobs.length : count(t)}</span>
+                  {t === "Delivered" ? "POD missing" : t} <span className="opacity-70">{t === "All" ? mine.length : count(t)}</span>
                 </button>
               ))}
             </div>
             <div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto">
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search invoice or customer" className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm sm:w-56 sm:flex-none" aria-label="Search" />
+              <select value={lorry} onChange={(e) => { setLorry(e.target.value); setSel(new Set()); }} aria-label="Lorry" className={`rounded-md border px-2 py-1.5 text-sm ${lorry ? "border-indigo-600 bg-indigo-50 font-medium text-indigo-800" : "border-slate-300"}`}>
+                <option value="">All lorries</option>
+                {plates.map((no) => <option key={no} value={no}>{no}{onRoad(no) ? ` · ${onRoad(no)} out` : ""}</option>)}
+                <option value="third">3rd-party transporters{thirdCount ? ` · ${thirdCount} out` : ""}</option>
+              </select>
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search invoice, customer or route" className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm sm:w-56 sm:flex-none" aria-label="Search" />
               <input ref={files} type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => void onFiles(e.target.files)} />
               <button onClick={() => files.current?.click()} disabled={busy} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Upload size={16} /> Upload PODs</button>
               <button onClick={() => { setBusy(true); void exportExcel(rows, excelCols, "Deliveries.xlsx", "Deliveries", `Total (${rows.length.toLocaleString()} invoices)`).finally(() => setBusy(false)); }} disabled={busy || !rows.length} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><FileSpreadsheet size={16} /> Export Excel</button>
@@ -115,6 +133,16 @@ export default function Deliveries() {
             </div>
           </div>
 
+          {lorry && (
+            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-sm text-slate-700">
+              <span className="text-base font-semibold text-slate-900">{lorry === "third" ? "3rd-party transporters" : lorry}</span>
+              {picked && <span>{picked.size}{picked.pallets != null ? `, ${picked.pallets} pallets` : ""}</span>}
+              {drivers.length > 0 && <span>Driver: {drivers.join(", ")}</span>}
+              {routes.length > 0 && <span>Route: {routes.join(", ")}</span>}
+              <span>Out for delivery <b>{count("Loaded")}</b> · POD missing <b>{count("Delivered")}</b> · Done <b>{count("Completed")}</b> · RM {money(mine.filter((j) => j.status === "Loaded" || j.status === "Delivered").reduce((t, j) => t + j.amount, 0))} on the road</span>
+              <button onClick={() => { setLorry(""); setSel(new Set()); }} className="ml-auto text-indigo-700 hover:underline">Show all lorries</button>
+            </div>
+          )}
           {msg && (
             <div role={msg.ok ? "status" : "alert"} className={`mb-3 rounded-md px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>
               {msg.text}
@@ -171,7 +199,7 @@ export default function Deliveries() {
       {loading && <LoadModal count={selected.length} sample={sample} onClose={() => setLoading(false)} onLoad={async (v, route) => { const r = await run(() => markLoaded(sample, selected, v, route, me), true); if (r.ok) setLoading(false); return r; }} />}
       {current && <JobModal job={current} sample={sample} me={me} onClose={() => setOpen(null)} run={run} />}
 
-      <PrintSheet title="Deliveries" rows={rows} cols={printCols} rowKey={(j) => j.docNo} totalLabel={`Total · ${plural(rows.length, "invoice", "invoices")}`} size="8.5pt"
+      <PrintSheet title={lorry ? `Deliveries · ${lorry === "third" ? "3rd-party transporters" : lorry}` : "Deliveries"} rows={rows} cols={printCols} rowKey={(j) => j.docNo} totalLabel={`Total · ${plural(rows.length, "invoice", "invoices")}`} size="8.5pt"
         lines={[`Printed ${day(new Date().toISOString())}`, [tab !== "All" ? tab : "", q.trim() ? `search “${q.trim()}”` : "", grid.describe()].filter(Boolean).join(" · ")]} />
     </>
   );

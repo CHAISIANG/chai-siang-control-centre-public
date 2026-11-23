@@ -84,7 +84,7 @@ export default function UsersPage() {
     await run(async () => {
       await callAdmin({ action: "create", email: staffEmail(x.code), staff_code: x.code, full_name: x.full_name, password: x.password, role: x.role, salesman_code: x.salesman_code || null });
       setAdding(false);
-    }, `Created a login for ${x.full_name}. They sign in with staff code ${x.code} and the password ${x.password}. They can change it on My account.`);
+    }, `Created a login for ${x.full_name}. They sign in with username ${x.code} and the password ${x.password}. They can change it on My account.`);
   }
 
   async function create() {
@@ -108,7 +108,7 @@ export default function UsersPage() {
       {adding && (
         <Card title="New user" className="mb-5">
           <div className="mb-4 inline-flex rounded-md border border-slate-300 p-0.5 text-sm" role="radiogroup" aria-label="Signs in with">
-            {([["email", "Signs in with email"], ["staff", "Signs in with staff code (no email)"]] as const).map(([k, l]) => <button key={k} role="radio" aria-checked={mode === k} onClick={() => setMode(k)} className={`rounded px-3 py-1.5 ${mode === k ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{l}</button>)}
+            {([["email", "Signs in with email"], ["staff", "Signs in with username (no email)"]] as const).map(([k, l]) => <button key={k} role="radio" aria-checked={mode === k} onClick={() => setMode(k)} className={`rounded px-3 py-1.5 ${mode === k ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{l}</button>)}
           </div>
           {mode === "staff" ? <StaffLoginForm staff={picks} roles={assignable} salesmen={salesmen} password={newPassword()} newPassword={newPassword} busy={busy} onCreate={(x) => void createStaff(x)} onCancel={() => setAdding(false)} /> : <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -147,7 +147,7 @@ export default function UsersPage() {
                   <tr key={u.id} className="border-b border-slate-100 align-top last:border-0">
                     <Td first>
                       {editing ? <input className={sel} value={draft.full_name} onChange={(e) => setDraft({ ...draft, full_name: e.target.value })} aria-label="Name" /> : <><b>{u.full_name ?? "—"}</b>{me && <span className="ml-2"><Badge tone="blue">You</Badge></span>}</>}
-                      <div className="text-sm text-slate-500">{staffCodeOf(u.email) ? `Staff code ${staffCodeOf(u.email)} (no email)` : u.email}</div>
+                      <div className="text-sm text-slate-500">{staffCodeOf(u.email) ? `Username ${staffCodeOf(u.email)} (no email)` : u.email}</div>
                     </Td>
                     <Td>
                       {u.protected ? <Badge tone="amber">Super admin · protected</Badge> : editing ? (

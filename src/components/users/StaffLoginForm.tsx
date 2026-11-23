@@ -6,7 +6,7 @@ export type StaffPick = { code: string; name: string; position: string; email: s
 export type NewStaffLogin = { code: string; full_name: string; password: string; role: string; salesman_code: string };
 type Role = { name: string; label: string };
 
-/** Create a login for someone with no email: they sign in with their employee code and a password. */
+/** Create a login for someone with no email: their username is their employee code. */
 export function StaffLoginForm({ staff, roles, salesmen, password, newPassword, busy, onCreate, onCancel }: {
   staff: StaffPick[]; roles: Role[]; salesmen: { code: string; name: string }[];
   password: string; newPassword: () => string; busy: boolean;
@@ -50,15 +50,15 @@ export function StaffLoginForm({ staff, roles, salesmen, password, newPassword, 
       </div>
       {picked && (
         <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          {picked.name.split(" ")[0]} signs in with staff code <b className="font-semibold">{picked.code}</b> and the password above. No email is needed or sent.
-          {picked.email && <span className="block text-amber-800">This employee already has an email ({picked.email}). They could sign in with that instead; a staff code login replaces it on their HR record.</span>}
+          {picked.name.split(" ")[0]} signs in with username <b className="font-semibold">{picked.code}</b> (their employee code) and the password above. No email is needed or sent.
+          {picked.email && <span className="block text-amber-800">This employee already has an email ({picked.email}). They could sign in with that instead; a username login replaces it on their HR record.</span>}
           <span className="block text-xs text-slate-500">Login address kept by the system: {staffEmail(picked.code)}</span>
         </p>
       )}
       <div className="mt-4 flex gap-2">
         <button disabled={busy || !picked || picked.hasLogin || !f.full_name.trim() || f.password.length < 8}
           onClick={() => onCreate({ code: picked!.code, ...f, full_name: f.full_name.trim() })}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-base font-medium text-white hover:bg-indigo-700 disabled:opacity-40">{busy ? "Creating…" : "Create staff login"}</button>
+          className="rounded-md bg-indigo-600 px-4 py-2 text-base font-medium text-white hover:bg-indigo-700 disabled:opacity-40">{busy ? "Creating…" : "Create username login"}</button>
         <button onClick={onCancel} className="rounded-md border border-slate-300 px-4 py-2 text-base hover:bg-slate-100">Cancel</button>
       </div>
     </div>

@@ -28,10 +28,10 @@ export default function ApplyLeave() {
   const [err, setErr] = useState("");
 
   const single = from === to;
-  const days = type === "ML" ? calendarDays(from, to) : leaveDays(from, to, single ? half : "", hol, s);
+  const days = type === "ML" ? calendarDays(from, to) : leaveDays(from, to, single ? half : "", hol, s, me.schedule);
   const b = balance(data, me, type);
   const after = b.available === null ? null : b.available - days;
-  const off = to >= from && from ? eachDay(from, to).filter((d) => isRestDay(d, s) || hol.has(d)) : [];
+  const off = to >= from && from ? eachDay(from, to).filter((d) => isRestDay(d, s, me.schedule) || hol.has(d)) : [];
   const offHolidays = data.holidays.filter((h) => off.includes(h.date) && hol.has(h.date));
   const needMc = (type === "SL" && days > 2) || type === "HL";
   const short = LEAVE_TYPES.find((t) => t.code === type)!.short.toLowerCase();

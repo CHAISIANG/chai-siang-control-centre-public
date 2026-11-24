@@ -1,5 +1,5 @@
 // Made-up sample data for the HR screens (stage 1: no database yet). All people and numbers are fictional.
-import { addDays, eachDay, holidaysFor, isWorkingDay, leaveDays, calendarDays, todayMY, weekday, DEFAULT_SETTINGS, type ClockFlag, type Gender, type Holiday, type LeaveType, type Settings, type WorkType } from "./rules";
+import { addDays, eachDay, holidaysFor, isWorkingDay, leaveDays, calendarDays, todayMY, weekday, DEFAULT_SETTINGS, type ClockFlag, type Gender, type Holiday, type LeaveType, type Schedule, type Settings, type WorkType } from "./rules";
 
 export type Role = "employee" | "manager" | "hr";
 export type Employee = {
@@ -7,6 +7,8 @@ export type Employee = {
   joined: string; managerId: string | null; role: Role; email: string; phone: string; active: boolean;
   /** office (default) or field staff: decides how clock-in is checked */
   workType?: WorkType;
+  /** office (default) or the Saturday team */
+  schedule?: Schedule;
 };
 export type LeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type LeaveRequest = {
@@ -33,8 +35,8 @@ export const EMPLOYEES: Employee[] = [
   { id: "e1", code: "CS001", name: "Ahmad Faizal bin Rahman", position: "Operations Manager", dept: "Operations", gender: "M", state: "Selangor", joined: "2018-03-01", managerId: "e5", role: "manager", email: "ahmad@example.com", phone: "012-000 0001", active: true },
   { id: "e2", code: "CS002", name: "Nurul Aisyah binti Hassan", position: "Admin Executive", dept: "Operations", gender: "F", state: "Selangor", joined: "2023-06-12", managerId: "e1", role: "employee", email: "nurul@example.com", phone: "012-000 0002", active: true },
   { id: "e3", code: "CS003", name: "Tan Mei Ling", position: "Account Clerk", dept: "Finance", gender: "F", state: "Selangor", joined: "2025-02-03", managerId: "e5", role: "employee", email: "meiling@example.com", phone: "012-000 0003", active: true },
-  { id: "e4", code: "CS004", name: "Rajesh a/l Subramaniam", position: "Storekeeper", dept: "Warehouse", gender: "M", state: "Selangor", joined: "2020-09-01", managerId: "e1", role: "employee", email: "rajesh@example.com", phone: "012-000 0004", active: true },
-  { id: "e6", code: "CS006", name: "Hafiz bin Osman", position: "Salesman", dept: "Sales", gender: "M", state: "Selangor", joined: "2022-04-18", managerId: "e1", role: "employee", email: "hafiz@example.com", phone: "012-000 0006", active: true, workType: "field" },
+  { id: "e4", code: "CS004", name: "Rajesh a/l Subramaniam", position: "Storekeeper", dept: "Warehouse", gender: "M", state: "Selangor", joined: "2020-09-01", managerId: "e1", role: "employee", email: "rajesh@example.com", phone: "012-000 0004", active: true, schedule: "saturday" },
+  { id: "e6", code: "CS006", name: "Hafiz bin Osman", position: "Salesman", dept: "Sales", gender: "M", state: "Selangor", joined: "2022-04-18", managerId: "e1", role: "employee", email: "hafiz@example.com", phone: "012-000 0006", active: true, workType: "field", schedule: "saturday" },
   { id: "e5", code: "CS005", name: "Lim Wei Jie", position: "HR & Admin Manager", dept: "HR", gender: "M", state: "Selangor", joined: "2016-01-04", managerId: null, role: "hr", email: "weijie@example.com", phone: "012-000 0005", active: true },
 ];
 /** Whose screens the sample shows for each view. */
@@ -142,7 +144,7 @@ export const ATTENDANCE: Attendance[] = (() => {
   EMPLOYEES.forEach((e, i) => {
     const rand = rng(97 + i * 31);
     for (const d of eachDay(MONTH0, TODAY)) {
-      const working = isWorkingDay(d, sel);
+      const working = isWorkingDay(d, sel, DEFAULT_SETTINGS, e.schedule);
       if (!working) {
         // the storekeeper sometimes does Saturday stock-take: rest-day overtime
         if (e.id === "e4" && weekday(d) === 6 && rand() < 0.5) out.push({ empId: e.id, date: d, inMin: 8 * 60 + 30, outMin: 12 * 60 + 30, source: "app" });

@@ -22,12 +22,13 @@ export type Settings = {
   fieldSelfie: boolean;            // field staff take a photo of themselves to clock in
   carryMaxDays: number; carryExpiry: string; // "MM-DD": carried-over annual leave must be used by this date
   otWeekday: number; otRestDay: number; otPublicHoliday: number;
-  restDays: number[];              // 0 = Sunday ... 6 = Saturday
+  restDays: number[];              // office team: 0 = Sunday ... 6 = Saturday
+  satOffWeeks: number[];           // Saturday team: Saturdays off by week of the month, e.g. [2] = the 2nd Saturday
 };
 export const DEFAULT_SETTINGS: Settings = {
   workStart: "09:00", workEnd: "18:00", lunchStart: "13:00", lunchEnd: "14:00", lateAfterMin: 15,
   gpsRequired: false, gpsRadiusM: 200, officeLat: 3.2389, officeLng: 101.6802, qrRequired: false, qrSeconds: 60, fieldSelfie: false,
-  carryMaxDays: 5, carryExpiry: "03-31", otWeekday: 1.5, otRestDay: 2.0, otPublicHoliday: 3.0, restDays: [0, 6],
+  carryMaxDays: 5, carryExpiry: "03-31", otWeekday: 1.5, otRestDay: 2.0, otPublicHoliday: 3.0, restDays: [0, 6], satOffWeeks: [2],
 };
 
 // ---------- dates ----------
@@ -53,14 +54,27 @@ export function eachDay(from: string, to: string): string[] {
 export type Holiday = { date: string; name: string; scope: "Federal" | string };
 /** Holidays that apply to someone in this state (federal ones plus that state's own). */
 export const holidaysFor = (all: Holiday[], state: string) => all.filter((h) => h.scope === "Federal" || h.scope === state);
-export const isRestDay = (d: string, s: Settings = DEFAULT_SETTINGS) => s.restDays.includes(weekday(d));
-export const isWorkingDay = (d: string, holidays: Set<string>, s: Settings = DEFAULT_SETTINGS) => !isRestDay(d, s) && !holidays.has(d);
+/** Two work schedules: the office team rests on the set rest days; the Saturday team (logistics, sales, merchandisers)
+ *  also works Saturdays, except the Saturdays of the month set in satOffWeeks, and rests on the other rest days. */
+export type Schedule = "office" | "saturday";
+export const SCHEDULES: { code: Schedule; name: string }[] = [
+  { code: "office", name: "Office (Saturdays off)" },
+  { code: "saturday", name: "Saturday team" },
+];
+/** Which Saturday of its month a date is: 1 to 5. */
+export const weekOfMonth = (d: string) => Math.ceil(Number(d.slice(8, 10)) / 7);
+export const isRestDay = (d: string, s: Settings = DEFAULT_SETTINGS, sched: Schedule = "office") => {
+  const wd = weekday(d);
+  if (sched === "saturday" && wd === 6) return (s.satOffWeeks ?? [2]).includes(weekOfMonth(d));
+  return s.restDays.includes(wd);
+};
+export const isWorkingDay = (d: string, holidays: Set<string>, s: Settings = DEFAULT_SETTINGS, sched: Schedule = "office") => !isRestDay(d, s, sched) && !holidays.has(d);
 
 /** Leave days between two dates, leaving out rest days and public holidays. A half day counts 0.5. */
-export function leaveDays(from: string, to: string, half: "" | "AM" | "PM", holidays: Set<string>, s: Settings = DEFAULT_SETTINGS): number {
+export function leaveDays(from: string, to: string, half: "" | "AM" | "PM", holidays: Set<string>, s: Settings = DEFAULT_SETTINGS, sched: Schedule = "office"): number {
   if (!from || !to || to < from) return 0;
-  if (half && from === to) return isWorkingDay(from, holidays, s) ? 0.5 : 0;
-  return eachDay(from, to).filter((d) => isWorkingDay(d, holidays, s)).length;
+  if (half && from === to) return isWorkingDay(from, holidays, s, sched) ? 0.5 : 0;
+  return eachDay(from, to).filter((d) => isWorkingDay(d, holidays, s, sched)).length;
 }
 /** Maternity leave is counted in calendar days under the Act, not working days. */
 export const calendarDays = (from: string, to: string) => (!from || !to || to < from ? 0 : eachDay(from, to).length);
@@ -90,7 +104,7 @@ export const serviceBand = (joined: string, year: number) => { const y = yearsOf
 
 // ---------- attendance ----------
 export type DayKind = "work" | "rest" | "holiday";
-export const dayKind = (d: string, holidays: Set<string>, s: Settings = DEFAULT_SETTINGS): DayKind => (holidays.has(d) ? "holiday" : isRestDay(d, s) ? "rest" : "work");
+export const dayKind = (d: string, holidays: Set<string>, s: Settings = DEFAULT_SETTINGS, sched: Schedule = "office"): DayKind => (holidays.has(d) ? "holiday" : isRestDay(d, s, sched) ? "rest" : "work");
 /** Late if clocked in more than lateAfterMin minutes after the start time (on a working day). */
 export const isLate = (inMin: number, s: Settings = DEFAULT_SETTINGS) => inMin > hm(s.workStart) + s.lateAfterMin;
 /** Minutes worked, leaving out the lunch hour when the day spans it. */
@@ -101,8 +115,8 @@ export function workedMin(inMin: number, outMin: number, s: Settings = DEFAULT_S
   return outMin - inMin - lunch;
 }
 /** Overtime hours (to the half hour) and the rate: beyond 8 hours on a working day, all hours on a rest day or public holiday. */
-export function overtime(d: string, inMin: number, outMin: number, holidays: Set<string>, s: Settings = DEFAULT_SETTINGS): { hours: number; rate: number } {
-  const kind = dayKind(d, holidays, s);
+export function overtime(d: string, inMin: number, outMin: number, holidays: Set<string>, s: Settings = DEFAULT_SETTINGS, sched: Schedule = "office"): { hours: number; rate: number } {
+  const kind = dayKind(d, holidays, s, sched);
   const worked = workedMin(inMin, outMin, s);
   const standard = hm(s.workEnd) - hm(s.workStart) - (hm(s.lunchEnd) - hm(s.lunchStart));
   const min = kind === "work" ? Math.max(0, worked - standard) : worked;

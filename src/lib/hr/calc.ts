@@ -69,8 +69,8 @@ export function monthStats(d: HrData, e: Employee, month: string): MonthStats {
   const s: MonthStats = { workDays: 0, present: 0, late: 0, missingOut: 0, absent: 0, leave: {}, leaveDays: 0, otHours: 0, otPaidHours: 0, rate: 0 };
   for (const day of days) {
     const a = att.get(day);
-    if (a?.inMin != null && a.outMin != null) { const ot = overtime(day, a.inMin, a.outMin, hol, s0); s.otHours += ot.hours; s.otPaidHours += ot.hours * ot.rate; }
-    if (!isWorkingDay(day, hol, s0)) continue;
+    if (a?.inMin != null && a.outMin != null) { const ot = overtime(day, a.inMin, a.outMin, hol, s0, e.schedule); s.otHours += ot.hours; s.otPaidHours += ot.hours * ot.rate; }
+    if (!isWorkingDay(day, hol, s0, e.schedule)) continue;
     s.workDays++;
     const lv = d.requests.find((r) => r.empId === e.id && r.status === "Approved" && day >= r.from && day <= r.to);
     if (lv) { const part = lv.half ? 0.5 : 1; s.leave[lv.type] = (s.leave[lv.type] ?? 0) + part; s.leaveDays += part; if (!lv.half) continue; }

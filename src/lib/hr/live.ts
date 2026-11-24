@@ -1,7 +1,7 @@
 // HR data from Supabase. The rules that matter are checked again on the server (see the hr_* functions),
 // so these calls only pass what the person asked for and show the server's answer.
 import { supabase } from "@/lib/supabase";
-import { DEFAULT_SETTINGS, type ClockFlag, type Fix, type Holiday, type LeaveType, type Settings, type WorkType } from "./rules";
+import { DEFAULT_SETTINGS, type ClockFlag, type Fix, type Holiday, type LeaveType, type Schedule, type Settings, type WorkType } from "./rules";
 import { TODAY, type Attendance, type Employee, type HrData, type LeaveRequest, type Note } from "./sample";
 
 export type Result = { ok: true; text: string } | { ok: false; text: string };
@@ -25,10 +25,10 @@ type AttRow = {
   in_acc: number | null; out_lat: number | null; out_lng: number | null; method: "qr" | "gps" | null; selfie_path: string | null; flags: ClockFlag[] | null;
   review_ok: boolean | null; review_by: string | null; review_at: string | null; review_note: string | null;
 };
-type EmpRow = { id: string; code: string; name: string; position: string; dept: string; gender: "F" | "M"; state: string; joined: string; manager_id: string | null; hr_role: Employee["role"]; email: string | null; phone: string | null; active: boolean; profile_id: string | null; work_type: WorkType };
+type EmpRow = { id: string; code: string; name: string; position: string; dept: string; gender: "F" | "M"; state: string; joined: string; manager_id: string | null; hr_role: Employee["role"]; email: string | null; phone: string | null; active: boolean; profile_id: string | null; work_type: WorkType; schedule?: Schedule };
 type ReqRow = { id: string; emp_id: string; type: LeaveType; from_date: string; to_date: string; half: "" | "AM" | "PM"; days: number; reason?: string; status: LeaveRequest["status"]; applied_at?: string; decided_by?: string | null; decided_by_name?: string | null; decided_at?: string | null; decision_note?: string | null; mc_path?: string | null };
 
-const toEmp = (r: EmpRow): Employee => ({ id: r.id, code: r.code, name: r.name, position: r.position, dept: r.dept, gender: r.gender, state: r.state, joined: r.joined, managerId: r.manager_id, role: r.hr_role, email: r.email ?? "", phone: r.phone ?? "", active: r.active, workType: r.work_type });
+const toEmp = (r: EmpRow): Employee => ({ id: r.id, code: r.code, name: r.name, position: r.position, dept: r.dept, gender: r.gender, state: r.state, joined: r.joined, managerId: r.manager_id, role: r.hr_role, email: r.email ?? "", phone: r.phone ?? "", active: r.active, workType: r.work_type, schedule: r.schedule ?? "office" });
 const toReq = (r: ReqRow, calendarOnly = false): LeaveRequest => ({
   id: r.id, empId: r.emp_id, type: r.type, from: r.from_date, to: r.to_date, half: r.half, days: Number(r.days), reason: r.reason ?? "", status: r.status,
   appliedAt: r.applied_at ?? r.from_date, decidedBy: r.decided_by ?? undefined, decidedByName: r.decided_by_name ?? undefined, decidedAt: r.decided_at ?? undefined,
@@ -40,7 +40,7 @@ export async function loadLive(): Promise<{ data: HrData; meId: string | null }>
   const { data: meId } = await supabase.rpc("hr_link_me");
   const year = Number(TODAY.slice(0, 4));
   const [emps, hols, set, reqs, att, adj, carry, notes, cal] = await Promise.all([
-    all<EmpRow>("hr_employees", "id, code, name, position, dept, gender, state, joined, manager_id, hr_role, email, phone, active, profile_id, work_type", "code"),
+    all<EmpRow>("hr_employees", "id, code, name, position, dept, gender, state, joined, manager_id, hr_role, email, phone, active, profile_id, work_type, schedule", "code"),
     all<{ date: string; name: string; scope: string }>("hr_holidays", "date, name, scope", "date"),
     supabase.from("hr_settings").select("data").eq("id", 1).maybeSingle(),
     all<ReqRow>("hr_leave_requests", "id, emp_id, type, from_date, to_date, half, days, reason, status, applied_at, decided_by, decided_by_name, decided_at, decision_note, mc_path", "from_date"),
@@ -122,7 +122,7 @@ export async function liveOfficeCode(): Promise<{ code: string; seconds: number;
   return data as { code: string; seconds: number; left: number };
 }
 export async function liveSaveEmployee(e: Employee): Promise<Result> {
-  const row = { code: e.code, name: e.name, position: e.position, dept: e.dept, gender: e.gender, state: e.state, joined: e.joined, manager_id: e.managerId, hr_role: e.role, email: e.email || null, phone: e.phone || null, active: e.active, work_type: e.workType ?? "office", updated_at: new Date().toISOString() };
+  const row = { code: e.code, name: e.name, position: e.position, dept: e.dept, gender: e.gender, state: e.state, joined: e.joined, manager_id: e.managerId, hr_role: e.role, email: e.email || null, phone: e.phone || null, active: e.active, work_type: e.workType ?? "office", schedule: e.schedule ?? "office", updated_at: new Date().toISOString() };
   const { error } = e.id ? await supabase.from("hr_employees").update(row).eq("id", e.id) : await supabase.from("hr_employees").insert(row);
   if (error) return fail(error, /duplicate|unique/i.test(error.message) ? "That employee code or email is already used." : undefined);
   return { ok: true, text: `${e.name} saved.` };

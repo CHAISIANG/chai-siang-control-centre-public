@@ -15,6 +15,7 @@ export default function HrSettings() {
     hm(s.workEnd) <= hm(s.workStart) && "End time must be after start time.",
     (hm(s.lunchStart) < hm(s.workStart) || hm(s.lunchEnd) > hm(s.workEnd) || hm(s.lunchEnd) <= hm(s.lunchStart)) && "Lunch must sit inside working hours.",
     s.restDays.length === 0 && "Pick at least one rest day.",
+    (s.satOffWeeks ?? []).length > 4 && "The Saturday team would never work a Saturday; untick some.",
     s.restDays.length > 3 && "That is a lot of rest days; check them.",
     [s.otWeekday, s.otRestDay, s.otPublicHoliday].some((x) => !(x >= 1)) && "Overtime rates must be 1 or more.",
     s.gpsRequired && !(s.gpsRadiusM >= 50) && "Allowed distance should be at least 50 metres.",
@@ -36,8 +37,13 @@ export default function HrSettings() {
           <label className={lbl}>Lunch to<input type="time" value={s.lunchEnd} onChange={(e) => set("lunchEnd", e.target.value)} className={field} /></label>
           <label className={`${lbl} col-span-2`}>Late after (minutes past start)<input type="number" min={0} value={s.lateAfterMin} onChange={(e) => set("lateAfterMin", Number(e.target.value))} className={field} /></label>
         </div>
-        <fieldset className="mt-4"><legend className={lbl}>Rest days</legend>
+        <fieldset className="mt-4"><legend className={lbl}>Rest days, office team</legend>
           <div className="mt-2 flex flex-wrap gap-2">{DAYS.map((d, i) => { const on = s.restDays.includes(i); return <button key={d} onClick={() => set("restDays", on ? s.restDays.filter((x) => x !== i) : [...s.restDays, i])} aria-pressed={on} className={`rounded-lg border px-3 py-1.5 text-sm ${on ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-300 text-slate-700"}`}>{d.slice(0, 3)}</button>; })}</div>
+        </fieldset>
+        <fieldset className="mt-4"><legend className={lbl}>Saturday team (logistics, sales, merchandisers)</legend>
+          <p className="mt-1 text-sm text-slate-500">Works every Saturday, full day, except the Saturdays ticked below. The other rest days are the same as the office team ({s.restDays.filter((d) => d !== 6).map((d) => DAYS[d]).join(", ") || "none"}).</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2"><span className="text-sm text-slate-700">Saturday off in week</span>{[1, 2, 3, 4, 5].map((w) => { const on = (s.satOffWeeks ?? []).includes(w); return <button key={w} onClick={() => set("satOffWeeks", on ? (s.satOffWeeks ?? []).filter((x) => x !== w) : [...(s.satOffWeeks ?? []), w].sort())} aria-pressed={on} className={`rounded-lg border px-3 py-1.5 text-sm ${on ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-300 text-slate-700"}`}>{["1st", "2nd", "3rd", "4th", "5th"][w - 1]}</button>; })}<span className="text-sm text-slate-500">of the month</span></div>
+          <p className="mt-2 text-sm text-slate-500">Who is on which schedule is set per person on the Employees page. Working on a day off counts as rest-day overtime.</p>
         </fieldset>
       </Card>
 

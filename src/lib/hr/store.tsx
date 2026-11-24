@@ -104,7 +104,7 @@ function SampleProvider({ children }: { children: ReactNode }) {
 
     applyLeave: (x) => {
       const hol = holidaySetFor(data, me.state);
-      const days = x.type === "ML" ? calendarDays(x.from, x.to) : leaveDays(x.from, x.to, x.from === x.to ? x.half : "", hol, data.settings);
+      const days = x.type === "ML" ? calendarDays(x.from, x.to) : leaveDays(x.from, x.to, x.from === x.to ? x.half : "", hol, data.settings, me.schedule);
       if (days <= 0) return { ok: false, text: "These dates have no working days." };
       const clash = data.requests.find((r) => r.empId === me.id && (r.status === "Pending" || r.status === "Approved") && r.from <= x.to && r.to >= x.from);
       if (clash) return { ok: false, text: `You already have ${leaveName(clash.type).toLowerCase()} on ${span(clash)}.` };

@@ -145,15 +145,15 @@ export default function ClockPage() {
           <div><dt className="text-xs text-slate-500">Out</dt><dd className="text-lg font-semibold text-slate-900">{rec?.outMin != null ? fmtHM(rec.outMin) : "–"}</dd></div>
           <div><dt className="text-xs text-slate-500">Worked</dt><dd className="text-lg font-semibold text-slate-900">{rec?.inMin != null && rec.outMin != null ? fmtHM(workedMin(rec.inMin, rec.outMin, s)) : "–"}</dd></div>
         </dl>
-        {rec?.inMin != null && rec.outMin != null && overtime(TODAY, rec.inMin, rec.outMin, hol, s).hours > 0 && <p className="mt-2 text-center text-sm text-blue-600">Overtime today: {overtime(TODAY, rec.inMin, rec.outMin, hol, s).hours} h at {overtime(TODAY, rec.inMin, rec.outMin, hol, s).rate}×</p>}
+        {rec?.inMin != null && rec.outMin != null && overtime(TODAY, rec.inMin, rec.outMin, hol, s, me.schedule).hours > 0 && <p className="mt-2 text-center text-sm text-blue-600">Overtime today: {overtime(TODAY, rec.inMin, rec.outMin, hol, s, me.schedule).hours} h at {overtime(TODAY, rec.inMin, rec.outMin, hol, s, me.schedule).rate}×</p>}
       </Card>
 
       <Card className="mt-4" title="Last 7 days">
         <ul className="divide-y divide-slate-100 text-sm">
           {week.map((d) => {
             const a = data.attendance.find((x) => x.empId === me.id && x.date === d);
-            const ot = a?.inMin != null && a.outMin != null ? overtime(d, a.inMin, a.outMin, hol, s) : null;
-            const off = hol.has(d) ? "Public holiday" : isRestDay(d, s) ? "Rest day" : null;
+            const ot = a?.inMin != null && a.outMin != null ? overtime(d, a.inMin, a.outMin, hol, s, me.schedule) : null;
+            const off = hol.has(d) ? "Public holiday" : isRestDay(d, s, me.schedule) ? "Rest day" : null;
             const onLeave = data.requests.some((r) => r.empId === me.id && r.status === "Approved" && d >= r.from && d <= r.to);
             return (
               <li key={d} className="flex items-center justify-between gap-3 py-2">

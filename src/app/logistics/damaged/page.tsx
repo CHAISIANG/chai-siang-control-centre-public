@@ -7,6 +7,7 @@ import { Modal, btnGhost, btnPrimary, inputCls } from "@/components/finui";
 import { useAuth } from "@/components/auth";
 import { exportExcel, GridHead, PrintSheet, useGrid, usePrintA4, type ExcelCol, type GridCol, type PrintCol } from "@/components/grid";
 import { CAUSES, DECISIONS, type Cause, type DamagedItem, type Decision } from "@/lib/delivery/rules";
+import { useT } from "@/lib/i18n";
 import { decideDamaged, logDamaged, useDelivery, useDeliverySample, type Result } from "@/lib/delivery/store";
 
 const day = (s?: string) => (s ? new Date(`${s}T00:00:00Z`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }) : "–");
@@ -22,6 +23,7 @@ const byId = (a: DamagedItem, b: DamagedItem) => a.id.localeCompare(b.id);
 
 /** Damaged or leaking stock found in the warehouse: it sits in Zone F until someone decides what happens to it. */
 export default function Damaged() {
+  const { t } = useT();
   const sample = useDeliverySample();
   const { damaged } = useDelivery(sample);
   const { profile } = useAuth();
@@ -54,7 +56,7 @@ export default function Damaged() {
       <div className="no-print">
         <PageHeader title="Damaged stock" sub="Damaged or leaking stock found in the warehouse. It stays in Zone F, never back on a shelf or on a delivery, until someone decides: return, claim, rework or write-off."
           right={<Link href="/logistics/sop#rosak" className="text-sm text-indigo-600 hover:underline">What to do (SOP)</Link>} />
-        {sample && <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">Sample data, kept in this browser only.</p>}
+        {sample && <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">{t("Sample data, kept in this browser only.")}</p>}
         <KpiStrip cols="lg:grid-cols-3">
           <Kpi label="In Zone F, waiting" value={String(pending.length)} tone={pending.length ? "warn" : "good"} sub="No decision yet" />
           <Kpi label="Decided" value={String(damaged.length - pending.length)} sub="Return, claim, rework or write-off" />
@@ -63,35 +65,35 @@ export default function Damaged() {
         <Card className="mt-4">
           <div className="mb-3 flex flex-wrap items-center gap-3">
             <div role="tablist" className="flex gap-1.5">
-              {(["Pending", "Decided", "All"] as const).map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`rounded-md border px-3 py-1.5 text-sm font-medium ${tab === t ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-100"}`}>{t === "Pending" ? "Waiting" : t}</button>)}
+              {(["Pending", "Decided", "All"] as const).map((tb) => <button key={tb} role="tab" aria-selected={tab === tb} onClick={() => setTab(tb)} className={`rounded-md border px-3 py-1.5 text-sm font-medium ${tab === tb ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-100"}`}>{t(tb === "Pending" ? "Waiting" : tb)}</button>)}
             </div>
             <div className="ml-auto flex flex-wrap gap-2">
-              <button onClick={() => setAdding(true)} className={`${btnPrimary} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Plus size={16} /> Log damaged stock</button>
-              <button onClick={() => { setBusy(true); void exportExcel(rows, excelCols, "Damaged stock.xlsx", "Damaged stock", `Total (${rows.length} entries)`).finally(() => setBusy(false)); }} disabled={busy || !rows.length} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><FileSpreadsheet size={16} /> Export Excel</button>
-              <button onClick={print} disabled={!rows.length} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Printer size={16} /> Print A4</button>
+              <button onClick={() => setAdding(true)} className={`${btnPrimary} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Plus size={16} /> {t("Log damaged stock")}</button>
+              <button onClick={() => { setBusy(true); void exportExcel(rows, excelCols, "Damaged stock.xlsx", "Damaged stock", `Total (${rows.length} entries)`).finally(() => setBusy(false)); }} disabled={busy || !rows.length} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><FileSpreadsheet size={16} /> {t("Export Excel")}</button>
+              <button onClick={print} disabled={!rows.length} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Printer size={16} /> {t("Print A4")}</button>
             </div>
           </div>
-          {msg && <div role={msg.ok ? "status" : "alert"} className={`mb-3 rounded-md px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>{msg.text}</div>}
+          {msg && <div role={msg.ok ? "status" : "alert"} className={`mb-3 rounded-md px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>{t(msg.text)}</div>}
           {grid.active.length > 0 && (
             <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-slate-500">Showing {plural(rows.length, "entry", "entries")} of {shown.length}:</span>
-              {grid.active.map((c) => <button key={c.id} onClick={() => grid.setFilter(c.id, {})} className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-indigo-800 hover:bg-indigo-100">{c.label} <X size={12} /></button>)}
-              <button onClick={grid.clearFilters} className="text-indigo-600 hover:underline">Clear all</button>
+              <span className="text-slate-500">{t("Showing {a} of {b}:", { a: plural(rows.length, t("entry"), t("entries")), b: shown.length })}</span>
+              {grid.active.map((c) => <button key={c.id} onClick={() => grid.setFilter(c.id, {})} className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-indigo-800 hover:bg-indigo-100">{t(c.label)} <X size={12} /></button>)}
+              <button onClick={grid.clearFilters} className="text-indigo-600 hover:underline">{t("Clear all")}</button>
             </div>
           )}
           <div className="overflow-x-auto pb-24">
             <table className="w-full">
               <thead className="border-b border-slate-200"><tr>{COLS.map((c, k) => <GridHead key={c.id} col={c} grid={grid} first={k === 0} />)}<th /></tr></thead>
               <tbody>
-                {rows.length === 0 && <tr><Td first className="text-slate-500">{tab === "Pending" ? "Nothing waiting in Zone F." : "No entries."}</Td></tr>}
+                {rows.length === 0 && <tr><Td first className="text-slate-500">{t(tab === "Pending" ? "Nothing waiting in Zone F." : "No entries.")}</Td></tr>}
                 {rows.map((d) => (
                   <tr key={d.id} className="border-b border-slate-100 align-top hover:bg-slate-50">
                     <Td first className="whitespace-nowrap">{day(d.foundOn)}</Td>
-                    <Td><span className="font-medium text-slate-900">{d.itemCode}</span><div className="text-sm text-slate-600">{d.description}</div>{d.photo && <div className="text-xs text-slate-500">photo: {d.photo}</div>}</Td>
-                    <Td right>{d.qty} {d.uom}</Td>
+                    <Td><span className="font-medium text-slate-900">{d.itemCode}</span><div className="text-sm text-slate-600">{d.description}</div>{d.photo && <div className="text-xs text-slate-500">{t("photo")}: {d.photo}</div>}</Td>
+                    <Td right>{d.qty} {t(d.uom)}</Td>
                     <Td><Badge tone={d.cause === "Leaking" ? "red" : "amber"}>{d.cause}</Badge></Td>
-                    <Td>{d.decision ? <><Badge tone={d.decision === "Write-off" ? "red" : "green"}>{d.decision}</Badge><div className="mt-0.5 text-xs text-slate-500">{d.decidedBy}, {day(d.decidedOn)}{d.note ? `: ${d.note}` : ""}</div></> : <Badge tone="grey">Waiting for a decision</Badge>}</Td>
-                    <Td>{!d.decision && <button onClick={() => setDeciding(d)} className="rounded-md border border-slate-300 px-2.5 py-1 text-sm hover:bg-slate-100">Decide</button>}</Td>
+                    <Td>{d.decision ? <><Badge tone={d.decision === "Write-off" ? "red" : "green"}>{d.decision}</Badge><div className="mt-0.5 text-xs text-slate-500">{d.decidedBy}, {day(d.decidedOn)}{d.note ? `: ${d.note}` : ""}</div></> : <Badge tone="grey">{t("Waiting for a decision")}</Badge>}</Td>
+                    <Td>{!d.decision && <button onClick={() => setDeciding(d)} className="rounded-md border border-slate-300 px-2.5 py-1 text-sm hover:bg-slate-100">{t("Decide")}</button>}</Td>
                   </tr>
                 ))}
               </tbody>
@@ -108,34 +110,36 @@ export default function Damaged() {
 }
 
 function AddModal({ sample, me, onClose, onDone }: { sample: boolean; me: string; onClose: () => void; onDone: (r: Result) => void }) {
+  const { t } = useT();
   const [code, setCode] = useState(""); const [desc, setDesc] = useState(""); const [qty, setQty] = useState(""); const [uom, setUom] = useState("Carton"); const [cause, setCause] = useState<Cause>("Crushed"); const [err, setErr] = useState("");
   const photo = useRef<HTMLInputElement>(null);
   return (
     <Modal title="Log damaged stock" onClose={onClose}>
-      <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">Move it to Zone F first and label it (date, item, quantity, cause). Never put it back on a shelf.</p>
+      <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">{t("Move it to Zone F first and label it (date, item, quantity, cause). Never put it back on a shelf.")}</p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="text-sm font-medium text-slate-700">Item code<input className={inputCls} value={code} onChange={(e) => setCode(e.target.value)} autoFocus /></label>
-        <label className="text-sm font-medium text-slate-700">Description<input className={inputCls} value={desc} onChange={(e) => setDesc(e.target.value)} /></label>
-        <label className="text-sm font-medium text-slate-700">Quantity<input inputMode="decimal" className={inputCls} value={qty} onChange={(e) => setQty(e.target.value)} /></label>
-        <label className="text-sm font-medium text-slate-700">Unit<select className={inputCls} value={uom} onChange={(e) => setUom(e.target.value)}><option>Carton</option><option>Pack</option><option>Pallet</option></select></label>
+        <label className="text-sm font-medium text-slate-700">{t("Item code")}<input className={inputCls} value={code} onChange={(e) => setCode(e.target.value)} autoFocus /></label>
+        <label className="text-sm font-medium text-slate-700">{t("Description")}<input className={inputCls} value={desc} onChange={(e) => setDesc(e.target.value)} /></label>
+        <label className="text-sm font-medium text-slate-700">{t("Quantity")}<input inputMode="decimal" className={inputCls} value={qty} onChange={(e) => setQty(e.target.value)} /></label>
+        <label className="text-sm font-medium text-slate-700">{t("Unit")}<select className={inputCls} value={uom} onChange={(e) => setUom(e.target.value)}><option value="Carton">{t("Carton")}</option><option value="Pack">{t("Pack")}</option><option value="Pallet">{t("Pallet")}</option></select></label>
       </div>
-      <label className="mt-3 block text-sm font-medium text-slate-700">Cause<select className={inputCls} value={cause} onChange={(e) => setCause(e.target.value as Cause)}>{CAUSES.map((c) => <option key={c}>{c}</option>)}</select></label>
-      <label className="mt-3 block text-sm font-medium text-slate-700">Photo (optional)<input ref={photo} type="file" accept="image/*" capture="environment" className={`${inputCls} !py-1.5`} /></label>
-      {err && <p role="alert" className="mt-2 text-sm text-rose-700">{err}</p>}
-      <div className="mt-4 flex justify-end gap-2"><button onClick={onClose} className={btnGhost}>Cancel</button><button onClick={async () => { const r = await logDamaged(sample, { itemCode: code, description: desc, qty: Number(qty), uom, cause, photo: photo.current?.files?.[0] }, me); if (r.ok) onDone(r); else setErr(r.text); }} className={btnPrimary}>Save</button></div>
+      <label className="mt-3 block text-sm font-medium text-slate-700">{t("Cause")}<select className={inputCls} value={cause} onChange={(e) => setCause(e.target.value as Cause)}>{CAUSES.map((c) => <option key={c} value={c}>{t(c)}</option>)}</select></label>
+      <label className="mt-3 block text-sm font-medium text-slate-700">{t("Photo (optional)")}<input ref={photo} type="file" accept="image/*" capture="environment" className={`${inputCls} !py-1.5`} /></label>
+      {err && <p role="alert" className="mt-2 text-sm text-rose-700">{t(err)}</p>}
+      <div className="mt-4 flex justify-end gap-2"><button onClick={onClose} className={btnGhost}>{t("Cancel")}</button><button onClick={async () => { const r = await logDamaged(sample, { itemCode: code, description: desc, qty: Number(qty), uom, cause, photo: photo.current?.files?.[0] }, me); if (r.ok) onDone(r); else setErr(r.text); }} className={btnPrimary}>{t("Save")}</button></div>
     </Modal>
   );
 }
 function DecideModal({ sample, item, me, onClose, onDone }: { sample: boolean; item: DamagedItem; me: string; onClose: () => void; onDone: (r: Result) => void }) {
+  const { t } = useT();
   const [dec, setDec] = useState<Decision>("Return to principal"); const [note, setNote] = useState(""); const [err, setErr] = useState("");
   return (
-    <Modal title={`Decide: ${item.itemCode}`} onClose={onClose}>
-      <p className="text-sm text-slate-600">{item.qty} {item.uom} of {item.description || item.itemCode}, {item.cause.toLowerCase()}.</p>
-      <label className="mt-3 block text-sm font-medium text-slate-700">Decision<select className={inputCls} value={dec} onChange={(e) => setDec(e.target.value as Decision)}>{DECISIONS.map((d) => <option key={d}>{d}</option>)}</select></label>
-      <label className="mt-3 block text-sm font-medium text-slate-700">{dec === "Write-off" ? "Reason (required for a write-off)" : "Note (optional)"}<textarea rows={3} className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} /></label>
-      {dec === "Write-off" && <p className="mt-2 text-xs text-slate-500">A write-off needs approval: <mark className="rounded bg-amber-100 px-1 text-amber-900">who approves and the amount limit are still to be confirmed</mark>. Your name is recorded as the approver.</p>}
-      {err && <p role="alert" className="mt-2 text-sm text-rose-700">{err}</p>}
-      <div className="mt-4 flex justify-end gap-2"><button onClick={onClose} className={btnGhost}>Cancel</button><button onClick={async () => { const r = await decideDamaged(sample, item.id, dec, me, note); if (r.ok) onDone(r); else setErr(r.text); }} className={btnPrimary}>Save decision</button></div>
+    <Modal title={t("Decide: {code}", { code: item.itemCode })} onClose={onClose}>
+      <p className="text-sm text-slate-600">{item.qty} {t(item.uom)} {t("of")} {item.description || item.itemCode}, {t(item.cause).toLowerCase()}.</p>
+      <label className="mt-3 block text-sm font-medium text-slate-700">{t("Decision")}<select className={inputCls} value={dec} onChange={(e) => setDec(e.target.value as Decision)}>{DECISIONS.map((d) => <option key={d} value={d}>{t(d)}</option>)}</select></label>
+      <label className="mt-3 block text-sm font-medium text-slate-700">{t(dec === "Write-off" ? "Reason (required for a write-off)" : "Note (optional)")}<textarea rows={3} className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} /></label>
+      {dec === "Write-off" && <p className="mt-2 text-xs text-slate-500">{t("A write-off needs approval:")} <mark className="rounded bg-amber-100 px-1 text-amber-900">{t("who approves and the amount limit are still to be confirmed")}</mark>. {t("Your name is recorded as the approver.")}</p>}
+      {err && <p role="alert" className="mt-2 text-sm text-rose-700">{t(err)}</p>}
+      <div className="mt-4 flex justify-end gap-2"><button onClick={onClose} className={btnGhost}>{t("Cancel")}</button><button onClick={async () => { const r = await decideDamaged(sample, item.id, dec, me, note); if (r.ok) onDone(r); else setErr(r.text); }} className={btnPrimary}>{t("Save decision")}</button></div>
     </Modal>
   );
 }

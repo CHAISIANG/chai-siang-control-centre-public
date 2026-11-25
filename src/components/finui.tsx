@@ -3,6 +3,7 @@ import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Badge } from "./ui";
 import { alertFor, effectiveStatus, STATUS_LABEL, STATUS_TONE, type FinInvoice } from "@/lib/finance";
+import { useT } from "@/lib/i18n";
 
 export function StatusBadge({ inv }: { inv: FinInvoice }) {
   const s = effectiveStatus(inv);
@@ -16,6 +17,7 @@ export function AlertBadge({ inv }: { inv: FinInvoice }) {
 }
 
 export function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  const { t } = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -23,10 +25,10 @@ export function Modal({ title, onClose, children, wide = false }: { title: strin
   }, [onClose]);
   return (
     <div className="no-print fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div role="dialog" aria-modal="true" aria-label={title} className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} rounded-xl border border-slate-200 bg-white shadow-xl`}>
+      <div role="dialog" aria-modal="true" aria-label={t(title)} className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} rounded-xl border border-slate-200 bg-white shadow-xl`}>
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-          <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-          <button onClick={onClose} aria-label="Close" className="rounded p-1 text-slate-500 hover:bg-slate-100"><X size={20} /></button>
+          <h2 className="text-lg font-semibold text-slate-900">{t(title)}</h2>
+          <button onClick={onClose} aria-label={t("Close")} className="rounded p-1 text-slate-500 hover:bg-slate-100"><X size={20} /></button>
         </div>
         <div className="p-4">{children}</div>
       </div>

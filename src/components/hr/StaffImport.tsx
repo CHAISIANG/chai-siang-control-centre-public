@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { Download, FileUp } from "lucide-react";
 import { Modal, btnBlue, btnLine } from "@/components/hr/ui";
 import { useHr } from "@/lib/hr/store";
+import { useT } from "@/lib/i18n";
 
 const HEAD = ["Employee code", "Full name", "Position", "Department", "Gender (F/M)", "State", "Date joined (YYYY-MM-DD)", "Manager code", "Access (employee/manager/hr)", "Email (login)", "Phone", "Still working (Y/N)"];
 const norm = (v: unknown) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -22,6 +23,7 @@ type Row = Record<string, unknown> & { code: string; name: string };
 
 /** Add or update many staff at once from the Excel template. Matched by employee code; a blank cell keeps nothing out. */
 export function StaffImport({ onDone }: { onDone: (t: string) => void }) {
+  const { t } = useT();
   const { data, importStaff, live } = useHr();
   const input = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -76,18 +78,18 @@ export function StaffImport({ onDone }: { onDone: (t: string) => void }) {
   const known = new Set(data.employees.map((e) => e.code.toUpperCase()));
   return (
     <>
-      <button onClick={template} className={`${btnLine} !py-2 text-sm`}><Download size={16} /> Staff template</button>
-      <button onClick={() => input.current?.click()} className={`${btnLine} !py-2 text-sm`}><FileUp size={16} /> Import from Excel</button>
+      <button onClick={template} className={`${btnLine} !py-2 text-sm`}><Download size={16} /> {t("Staff template")}</button>
+      <button onClick={() => input.current?.click()} className={`${btnLine} !py-2 text-sm`}><FileUp size={16} /> {t("Import from Excel")}</button>
       <input ref={input} type="file" accept=".xlsx" className="hidden" onChange={(e) => { void read(e.target.files?.[0]); e.target.value = ""; }} />
       {rows && (
-        <Modal title="Check before importing" onClose={() => setRows(null)}>
-          <p className="text-sm text-slate-700">{rows.length} rows: {rows.filter((r) => !known.has(r.code)).length} new, {rows.filter((r) => known.has(r.code)).length} updates to people already on file.</p>
-          {!live && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">This is the sample: importing works once HR is connected to the database.</p>}
+        <Modal title={t("Check before importing")} onClose={() => setRows(null)}>
+          <p className="text-sm text-slate-700">{t("{n} rows: {a} new, {b} updates to people already on file.", { n: rows.length, a: rows.filter((r) => !known.has(r.code)).length, b: rows.filter((r) => known.has(r.code)).length })}</p>
+          {!live && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{t("This is the sample: importing works once HR is connected to the database.")}</p>}
           {problems.length > 0
-            ? <ul className="mt-3 max-h-60 list-disc space-y-0.5 overflow-y-auto pl-5 text-sm text-rose-800">{problems.map((p) => <li key={p}>{p}</li>)}</ul>
-            : <ul className="mt-3 max-h-60 overflow-y-auto text-sm text-slate-600">{rows.slice(0, 40).map((r) => <li key={r.code}>{r.code} · {r.name} · {String(r.position)}{r.manager_code ? ` · reports to ${r.manager_code}` : ""}</li>)}</ul>}
-          <p className="mt-3 text-xs text-slate-500">Logins are separate: each person signs in with the email given here, and their record links by itself.</p>
-          <div className="mt-4 grid grid-cols-2 gap-2"><button onClick={() => setRows(null)} className={btnLine}>Cancel</button><button disabled={problems.length > 0 || !rows.length || busy} onClick={save} className={btnBlue}>{busy ? "Importing…" : `Import ${rows.length}`}</button></div>
+            ? <ul className="mt-3 max-h-60 list-disc space-y-0.5 overflow-y-auto pl-5 text-sm text-rose-800">{problems.map((p) => <li key={p}>{t(p)}</li>)}</ul>
+            : <ul className="mt-3 max-h-60 overflow-y-auto text-sm text-slate-600">{rows.slice(0, 40).map((r) => <li key={r.code}>{r.code} · {r.name} · {String(r.position)}{r.manager_code ? ` · ${t("reports to")} ${r.manager_code}` : ""}</li>)}</ul>}
+          <p className="mt-3 text-xs text-slate-500">{t("Logins are separate: each person signs in with the email given here, and their record links by itself.")}</p>
+          <div className="mt-4 grid grid-cols-2 gap-2"><button onClick={() => setRows(null)} className={btnLine}>{t("Cancel")}</button><button disabled={problems.length > 0 || !rows.length || busy} onClick={save} className={btnBlue}>{busy ? t("Importing…") : `${t("Import")} ${rows.length}`}</button></div>
         </Modal>
       )}
     </>

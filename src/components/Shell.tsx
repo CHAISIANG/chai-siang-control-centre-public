@@ -6,6 +6,7 @@ import { BookOpen, ChevronDown, FileSearch, Workflow, LayoutDashboard, TrendingU
 import { RoleProvider, useRole } from "./role";
 import { AuthProvider, useAuth } from "./auth";
 import { DataProvider, useData } from "./data";
+import { LangProvider, useT } from "@/lib/i18n";
 
 type Nav = { href: string; label: string; icon: typeof Users; perm: string; group?: string };
 const NAV: Nav[] = [
@@ -70,6 +71,7 @@ function Inner({ children }: { children: ReactNode }) {
   const { can, realCan, role, canPreview, roles, setRole, previewing, salesmanCode, setSalesmanCode, roleLabel } = useRole();
   const { salesmen, error, loading, asAt } = useData();
   const { profile, signOut } = useAuth();
+  const { t, lang, setLang } = useT();
   const [open, setOpen] = useState(false);
   const [dark, setDark] = useState(false);
   // Menu groups start folded every time the app opens; the ones you open stay open while you use it.
@@ -101,7 +103,7 @@ function Inner({ children }: { children: ReactNode }) {
       <Link key={n.href} href={n.href} onClick={() => setOpen(false)} aria-current={active ? "page" : undefined}
         className={`relative mx-2 flex items-center gap-3 rounded-md px-3 py-2 text-[15px] transition-colors ${active ? "bg-white/10 font-medium text-white" : "text-white/65 hover:bg-white/5 hover:text-white"}`}>
         {active && <span aria-hidden className="absolute -left-2 bottom-1.5 top-1.5 w-[3px] rounded-r bg-signal" />}
-        <n.icon size={17} className={active ? "text-signal" : "text-white/50"} /> {n.label}
+        <n.icon size={17} className={active ? "text-signal" : "text-white/50"} /> {t(n.label)}
       </Link>
     );
   };
@@ -111,10 +113,10 @@ function Inner({ children }: { children: ReactNode }) {
     const fold = label !== "Overview" && !opened[label];
     const shown = fold ? list.filter((n) => n.href === current?.href) : list;
     return (
-      <div key={label} role="group" aria-label={label} className="mt-4 first:mt-1">
+      <div key={label} role="group" aria-label={t(label)} className="mt-4 first:mt-1">
         <button type="button" onClick={() => toggleGroup(label)} aria-expanded={!fold}
           className="flex w-full items-center justify-between px-5 pb-1.5 text-left text-xs font-medium text-white/45 hover:text-white/80">
-          <span>{label}</span>
+          <span>{t(label)}</span>
           <ChevronDown size={14} className={`transition-transform ${fold ? "-rotate-90" : ""}`} aria-hidden />
         </button>
         <div className="space-y-0.5">{shown.map((n) => link(n))}</div>
@@ -138,10 +140,10 @@ function Inner({ children }: { children: ReactNode }) {
             <span className="plate !px-1.5 font-display text-lg" aria-hidden>CS</span>
             <div className="leading-tight">
               <div className="text-[15px] font-semibold text-white">Chai Siang</div>
-              <div className="text-xs text-white/55">Control centre</div>
+              <div className="text-xs text-white/55">{t("Control centre")}</div>
             </div>
           </div>
-          <button className="p-2 text-white/70 lg:hidden" onClick={() => setOpen(false)} aria-label="Close menu"><X size={20} /></button>
+          <button className="p-2 text-white/70 lg:hidden" onClick={() => setOpen(false)} aria-label={t("Close menu")}><X size={20} /></button>
         </div>
         <nav className="flex-1 overflow-y-auto py-3">
           {groups.map((g) => section(g, mainItems.filter((n) => n.group === g)))}
@@ -155,9 +157,9 @@ function Inner({ children }: { children: ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-200 bg-white/95 px-4 py-2.5 backdrop-blur sm:px-6">
-          <button className="-ml-1 rounded-md p-2 text-slate-700 hover:bg-slate-100 lg:hidden" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={22} /></button>
+          <button className="-ml-1 rounded-md p-2 text-slate-700 hover:bg-slate-100 lg:hidden" onClick={() => setOpen(true)} aria-label={t("Open menu")}><Menu size={22} /></button>
           <div className="min-w-0">
-            <div className="truncate text-[15px] font-semibold text-slate-900">{current?.label ?? "Chai Siang"}</div>
+            <div className="truncate text-[15px] font-semibold text-slate-900">{t(current?.label ?? "Chai Siang")}</div>
             {asAtText && <div className="text-xs text-slate-500">Data as of {asAtText}</div>}
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -181,10 +183,13 @@ function Inner({ children }: { children: ReactNode }) {
                 <div className="text-xs text-slate-500">{roleLabel}</div>
               </div>
             </div>
-            <button onClick={toggleTheme} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"} title={dark ? "Light mode" : "Dark mode"} className={iconBtn}>
+            <button onClick={() => setLang(lang === "ms" ? "en" : "ms")} aria-label={t(lang === "ms" ? "Switch to English" : "Switch to Bahasa Malaysia")} title={t("Language")} className={`${iconBtn} px-2.5 text-sm font-semibold`}>
+              {lang === "ms" ? "EN" : "BM"}
+            </button>
+            <button onClick={toggleTheme} aria-label={t(dark ? "Switch to light mode" : "Switch to dark mode")} title={t(dark ? "Light mode" : "Dark mode")} className={iconBtn}>
               {dark ? <Sun size={17} /> : <Moon size={17} />}
             </button>
-            <button onClick={() => void signOut()} aria-label="Sign out" title="Sign out" className={iconBtn}><LogOut size={17} /></button>
+            <button onClick={() => void signOut()} aria-label={t("Sign out")} title={t("Sign out")} className={iconBtn}><LogOut size={17} /></button>
           </div>
         </header>
         {previewing && <div className="border-b border-signal/40 bg-signal-soft px-4 py-1.5 text-sm text-slate-800">Previewing the app as <b>{roleLabel}</b>. You are still signed in as yourself, and the data rules are your own.</div>}
@@ -236,5 +241,5 @@ function Gate({ children }: { children: ReactNode }) {
 
 export default function Shell({ children }: { children: ReactNode }) {
   // Dynamic routes (invoice and client pages) read the URL at runtime, so the shell streams in behind a Suspense boundary.
-  return <AuthProvider><Suspense fallback={<Splash />}><Gate>{children}</Gate></Suspense></AuthProvider>;
+  return <LangProvider><AuthProvider><Suspense fallback={<Splash />}><Gate>{children}</Gate></Suspense></AuthProvider></LangProvider>;
 }

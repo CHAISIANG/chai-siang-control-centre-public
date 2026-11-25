@@ -7,6 +7,7 @@ import { Modal, btnGhost, btnPrimary, inputCls } from "@/components/finui";
 import { useAuth } from "@/components/auth";
 import { exportExcel, GridHead, PrintSheet, useGrid, usePrintA4, type ExcelCol, type GridCol, type PrintCol } from "@/components/grid";
 import { EXC_DOC_KINDS, EXC_KINDS, type DeliveryException, type ExcDocKind, type ExcKind } from "@/lib/delivery/rules";
+import { useT } from "@/lib/i18n";
 import { addExceptionDocs, excDocLink, logException, resolveException, useDelivery, useDeliverySample, type NewExcDoc, type Result } from "@/lib/delivery/store";
 
 const day = (s: string) => (s ? new Date(`${s}T00:00:00Z`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }) : "–");
@@ -23,6 +24,7 @@ const byId = (a: DeliveryException, b: DeliveryException) => a.id.localeCompare(
 
 /** Rejected, short, refused to sign, lost document and the like, each tied to an invoice. */
 export default function Exceptions() {
+  const { t } = useT();
   const sample = useDeliverySample();
   const { jobs, exceptions } = useDelivery(sample);
   const { profile } = useAuth();
@@ -56,7 +58,7 @@ export default function Exceptions() {
       <div className="no-print">
         <PageHeader title="Delivery exceptions" sub="Goods rejected, short or damaged, customers who refuse to sign, lost documents. Each one is tied to an invoice and ends with a credit note or a new delivery."
           right={<Link href="/logistics/sop#kecuali" className="text-sm text-indigo-600 hover:underline">What to do (SOP)</Link>} />
-        {sample && <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">Sample data, kept in this browser only.</p>}
+        {sample && <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">{t("Sample data, kept in this browser only.")}</p>}
         <KpiStrip cols="lg:grid-cols-3">
           <Kpi label="Open" value={String(open)} tone={open ? "bad" : "good"} sub="Waiting to be settled" />
           <Kpi label="Settled" value={String(exceptions.length - open)} sub="Credit note or new delivery done" />
@@ -65,37 +67,37 @@ export default function Exceptions() {
         <Card className="mt-4">
           <div className="mb-3 flex flex-wrap items-center gap-3">
             <div role="tablist" className="flex gap-1.5">
-              {(["Open", "Resolved", "All"] as const).map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`rounded-md border px-3 py-1.5 text-sm font-medium ${tab === t ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-100"}`}>{t === "Resolved" ? "Settled" : t}</button>)}
+              {(["Open", "Resolved", "All"] as const).map((tb) => <button key={tb} role="tab" aria-selected={tab === tb} onClick={() => setTab(tb)} className={`rounded-md border px-3 py-1.5 text-sm font-medium ${tab === tb ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-100"}`}>{t(tb === "Resolved" ? "Settled" : tb)}</button>)}
             </div>
             <div className="ml-auto flex flex-wrap gap-2">
-              <button onClick={() => setAdding(true)} className={`${btnPrimary} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Plus size={16} /> Log an exception</button>
-              <button onClick={() => { setBusy(true); void exportExcel(rows, excelCols, "Delivery exceptions.xlsx", "Exceptions").finally(() => setBusy(false)); }} disabled={busy || !rows.length} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><FileSpreadsheet size={16} /> Export Excel</button>
-              <button onClick={print} disabled={!rows.length} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Printer size={16} /> Print A4</button>
+              <button onClick={() => setAdding(true)} className={`${btnPrimary} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Plus size={16} /> {t("Log an exception")}</button>
+              <button onClick={() => { setBusy(true); void exportExcel(rows, excelCols, "Delivery exceptions.xlsx", "Exceptions").finally(() => setBusy(false)); }} disabled={busy || !rows.length} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><FileSpreadsheet size={16} /> {t("Export Excel")}</button>
+              <button onClick={print} disabled={!rows.length} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Printer size={16} /> {t("Print A4")}</button>
             </div>
           </div>
-          {msg && <div role={msg.ok ? "status" : "alert"} className={`mb-3 rounded-md px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>{msg.text}</div>}
+          {msg && <div role={msg.ok ? "status" : "alert"} className={`mb-3 rounded-md px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>{t(msg.text)}</div>}
           {grid.active.length > 0 && (
             <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-slate-500">Showing {plural(rows.length, "exception", "exceptions")} of {shown.length}:</span>
-              {grid.active.map((c) => <button key={c.id} onClick={() => grid.setFilter(c.id, {})} className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-indigo-800 hover:bg-indigo-100">{c.label} <X size={12} /></button>)}
-              <button onClick={grid.clearFilters} className="text-indigo-600 hover:underline">Clear all</button>
+              <span className="text-slate-500">{t("Showing {a} of {b}:", { a: plural(rows.length, t("exception"), t("exceptions")), b: shown.length })}</span>
+              {grid.active.map((c) => <button key={c.id} onClick={() => grid.setFilter(c.id, {})} className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-indigo-800 hover:bg-indigo-100">{t(c.label)} <X size={12} /></button>)}
+              <button onClick={grid.clearFilters} className="text-indigo-600 hover:underline">{t("Clear all")}</button>
             </div>
           )}
           <div className="overflow-x-auto pb-24">
             <table className="w-full">
-              <thead className="border-b border-slate-200"><tr>{COLS.map((c, k) => <GridHead key={c.id} col={c} grid={grid} first={k === 0} />)}<th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Documents</th><th /></tr></thead>
+              <thead className="border-b border-slate-200"><tr>{COLS.map((c, k) => <GridHead key={c.id} col={c} grid={grid} first={k === 0} />)}<th className="px-3 py-2 text-left text-xs font-medium text-slate-500">{t("Documents")}</th><th /></tr></thead>
               <tbody>
-                {rows.length === 0 && <tr><Td first className="text-slate-500">{tab === "Open" ? "Nothing open." : "No exceptions."}</Td></tr>}
+                {rows.length === 0 && <tr><Td first className="text-slate-500">{t(tab === "Open" ? "Nothing open." : "No exceptions.")}</Td></tr>}
                 {rows.map((e) => (
                   <tr key={e.id} className="border-b border-slate-100 align-top hover:bg-slate-50">
                     <Td first className="whitespace-nowrap">{day(e.at)}</Td>
                     <Td className="whitespace-nowrap font-medium text-slate-900">{e.docNo}</Td>
-                    <Td>{e.kind}{e.qty ? <div className="text-xs text-slate-500">qty {e.qty}</div> : null}</Td>
-                    <Td className="max-w-md !whitespace-normal">{e.detail}{e.resolution && <div className="mt-1 text-xs text-emerald-700">Settled {day(e.resolvedAt ?? "")}: {e.resolution}</div>}</Td>
+                    <Td>{t(e.kind)}{e.qty ? <div className="text-xs text-slate-500">{t("qty")} {e.qty}</div> : null}</Td>
+                    <Td className="max-w-md !whitespace-normal">{e.detail}{e.resolution && <div className="mt-1 text-xs text-emerald-700">{t("Settled")} {day(e.resolvedAt ?? "")}: {e.resolution}</div>}</Td>
                     <Td>{e.noteNo ?? <span className="text-slate-300">–</span>}</Td>
                     <Td><Badge tone={e.status === "Open" ? "red" : "green"}>{e.status === "Open" ? "Open" : "Settled"}</Badge></Td>
-                    <Td><button onClick={() => setPapers(e.id)} className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-sm ${e.docs?.length ? "border-indigo-300 bg-indigo-50 text-indigo-800" : "border-slate-300 text-slate-600 hover:bg-slate-100"}`} title="Credit or debit note, GRN, photos"><Paperclip size={14} />{e.docs?.length ? e.docs.length : "Add"}</button></Td>
-                    <Td>{e.status === "Open" && <button onClick={() => setSettling(e)} className="rounded-md border border-slate-300 px-2.5 py-1 text-sm hover:bg-slate-100">Settle</button>}</Td>
+                    <Td><button onClick={() => setPapers(e.id)} className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-sm ${e.docs?.length ? "border-indigo-300 bg-indigo-50 text-indigo-800" : "border-slate-300 text-slate-600 hover:bg-slate-100"}`} title={t("Credit or debit note, GRN, photos")}><Paperclip size={14} />{e.docs?.length ? e.docs.length : t("Add")}</button></Td>
+                    <Td>{e.status === "Open" && <button onClick={() => setSettling(e)} className="rounded-md border border-slate-300 px-2.5 py-1 text-sm hover:bg-slate-100">{t("Settle")}</button>}</Td>
                   </tr>
                 ))}
               </tbody>
@@ -113,47 +115,50 @@ export default function Exceptions() {
 }
 
 function AddModal({ sample, docs, me, onClose, onDone }: { sample: boolean; docs: string[]; me: string; onClose: () => void; onDone: (r: Result) => void }) {
+  const { t } = useT();
   const [doc, setDoc] = useState(""); const [kind, setKind] = useState<ExcKind>(EXC_KINDS[0]); const [detail, setDetail] = useState(""); const [qty, setQty] = useState(""); const [note, setNote] = useState(""); const [err, setErr] = useState("");
   const [files, setFiles] = useState<NewExcDoc[]>([]); const [busy, setBusy] = useState(false);
   return (
     <Modal title="Log an exception" onClose={onClose}>
-      <label className="block text-sm font-medium text-slate-700">Invoice<input list="exc-docs" className={inputCls} value={doc} onChange={(e) => setDoc(e.target.value.toUpperCase())} placeholder="Start typing the invoice number" /></label>
+      <label className="block text-sm font-medium text-slate-700">{t("Invoice")}<input list="exc-docs" className={inputCls} value={doc} onChange={(e) => setDoc(e.target.value.toUpperCase())} placeholder={t("Start typing the invoice number")} /></label>
       <datalist id="exc-docs">{docs.map((d) => <option key={d} value={d} />)}</datalist>
-      <label className="mt-3 block text-sm font-medium text-slate-700">What happened<select className={inputCls} value={kind} onChange={(e) => setKind(e.target.value as ExcKind)}>{EXC_KINDS.map((k) => <option key={k}>{k}</option>)}</select></label>
-      <label className="mt-3 block text-sm font-medium text-slate-700">Details<textarea rows={3} className={inputCls} value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="Item, quantity, who said what, what the driver did" /></label>
+      <label className="mt-3 block text-sm font-medium text-slate-700">{t("What happened")}<select className={inputCls} value={kind} onChange={(e) => setKind(e.target.value as ExcKind)}>{EXC_KINDS.map((k) => <option key={k} value={k}>{t(k)}</option>)}</select></label>
+      <label className="mt-3 block text-sm font-medium text-slate-700">{t("Details")}<textarea rows={3} className={inputCls} value={detail} onChange={(e) => setDetail(e.target.value)} placeholder={t("Item, quantity, who said what, what the driver did")} /></label>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <label className="text-sm font-medium text-slate-700">Quantity (optional)<input inputMode="decimal" className={inputCls} value={qty} onChange={(e) => setQty(e.target.value)} /></label>
-        <label className="text-sm font-medium text-slate-700">Credit / debit note (optional)<input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} /></label>
+        <label className="text-sm font-medium text-slate-700">{t("Quantity (optional)")}<input inputMode="decimal" className={inputCls} value={qty} onChange={(e) => setQty(e.target.value)} /></label>
+        <label className="text-sm font-medium text-slate-700">{t("Credit / debit note (optional)")}<input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} /></label>
       </div>
       <DocsPicker docs={files} setDocs={setFiles} />
-      {err && <p role="alert" className="mt-2 text-sm text-rose-700">{err}</p>}
-      <div className="mt-4 flex justify-end gap-2"><button onClick={onClose} className={btnGhost}>Cancel</button><button disabled={busy} onClick={async () => { setBusy(true); const r = await logException(sample, doc.trim(), kind, detail, qty.trim() && Number.isFinite(Number(qty)) ? Number(qty) : undefined, note, me, files); setBusy(false); if (r.ok) onDone(r); else setErr(r.text); }} className={btnPrimary}>{busy ? "Saving…" : "Save"}</button></div>
+      {err && <p role="alert" className="mt-2 text-sm text-rose-700">{t(err)}</p>}
+      <div className="mt-4 flex justify-end gap-2"><button onClick={onClose} className={btnGhost}>{t("Cancel")}</button><button disabled={busy} onClick={async () => { setBusy(true); const r = await logException(sample, doc.trim(), kind, detail, qty.trim() && Number.isFinite(Number(qty)) ? Number(qty) : undefined, note, me, files); setBusy(false); if (r.ok) onDone(r); else setErr(r.text); }} className={btnPrimary}>{t(busy ? "Saving…" : "Save")}</button></div>
     </Modal>
   );
 }
 function SettleModal({ sample, ex, me, onClose, onDone }: { sample: boolean; ex: DeliveryException; me: string; onClose: () => void; onDone: (r: Result) => void }) {
+  const { t } = useT();
   const [res, setRes] = useState(""); const [note, setNote] = useState(ex.noteNo ?? ""); const [err, setErr] = useState("");
   const [docs, setDocs] = useState<NewExcDoc[]>([]); const [busy, setBusy] = useState(false);
   return (
     <Modal title={`Settle ${ex.docNo}`} onClose={onClose}>
-      <p className="text-sm text-slate-600">{ex.kind}: {ex.detail}</p>
-      <label className="mt-3 block text-sm font-medium text-slate-700">How was it settled?<textarea rows={3} className={inputCls} value={res} onChange={(e) => setRes(e.target.value)} placeholder="For example: credit note raised and stamped copy received" autoFocus /></label>
-      <label className="mt-3 block text-sm font-medium text-slate-700">Credit / debit note number (optional)<input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} /></label>
-      <DocsPicker docs={docs} setDocs={setDocs} hint="For example the stamped credit note, the GRN, or the debit note." />
-      {err && <p role="alert" className="mt-2 text-sm text-rose-700">{err}</p>}
-      <div className="mt-4 flex justify-end gap-2"><button onClick={onClose} className={btnGhost}>Cancel</button><button disabled={busy} onClick={async () => {
+      <p className="text-sm text-slate-600">{t(ex.kind)}: {ex.detail}</p>
+      <label className="mt-3 block text-sm font-medium text-slate-700">{t("How was it settled?")}<textarea rows={3} className={inputCls} value={res} onChange={(e) => setRes(e.target.value)} placeholder={t("For example: credit note raised and stamped copy received")} autoFocus /></label>
+      <label className="mt-3 block text-sm font-medium text-slate-700">{t("Credit / debit note number (optional)")}<input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} /></label>
+      <DocsPicker docs={docs} setDocs={setDocs} hint={t("For example the stamped credit note, the GRN, or the debit note.")} />
+      {err && <p role="alert" className="mt-2 text-sm text-rose-700">{t(err)}</p>}
+      <div className="mt-4 flex justify-end gap-2"><button onClick={onClose} className={btnGhost}>{t("Cancel")}</button><button disabled={busy} onClick={async () => {
         setBusy(true);
         if (docs.length) { const d = await addExceptionDocs(sample, ex.id, docs, me); if (!d.ok) { setBusy(false); setErr(d.text); return; } }
         const r = await resolveException(sample, ex.id, res, note); setBusy(false);
-        if (r.ok) onDone(docs.length ? { ok: true, text: `Marked as settled, with ${docs.length} ${docs.length === 1 ? "document" : "documents"}.` } : r); else setErr(r.text);
-      }} className={btnPrimary}>{busy ? "Saving…" : "Mark settled"}</button></div>
+        if (r.ok) onDone(docs.length ? { ok: true, text: t("Marked as settled, with {n} {unit}.", { n: docs.length, unit: t(docs.length === 1 ? "document" : "documents") }) } : r); else setErr(r.text);
+      }} className={btnPrimary}>{t(busy ? "Saving…" : "Mark settled")}</button></div>
     </Modal>
   );
 }
 
 const isImg = (name: string) => /\.(jpe?g|png|heic|webp|gif)$/i.test(name);
 /** Choose photos or scans to keep, and say what each one is. */
-function DocsPicker({ docs, setDocs, hint = "For example a photo of the damaged goods, the credit or debit note, or the GRN." }: { docs: NewExcDoc[]; setDocs: (d: NewExcDoc[]) => void; hint?: string }) {
+function DocsPicker({ docs, setDocs, hint }: { docs: NewExcDoc[]; setDocs: (d: NewExcDoc[]) => void; hint?: string }) {
+  const { t } = useT();
   const pick = (list: FileList | null) => {
     if (!list?.length) return;
     setDocs([...docs, ...[...list].map((file): NewExcDoc => ({ kind: file.type.startsWith("image/") ? "Photo" : "Credit note", number: "", file }))]);
@@ -162,10 +167,10 @@ function DocsPicker({ docs, setDocs, hint = "For example a photo of the damaged 
   return (
     <div className="mt-4 rounded-lg border border-slate-200 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div><div className="text-sm font-medium text-slate-700">Supporting documents</div><div className="text-xs text-slate-500">{hint}</div></div>
+        <div><div className="text-sm font-medium text-slate-700">{t("Supporting documents")}</div><div className="text-xs text-slate-500">{hint ?? t("For example a photo of the damaged goods, the credit or debit note, or the GRN.")}</div></div>
         <div className="flex gap-2">
-          <label className={`${btnGhost} inline-flex cursor-pointer items-center gap-1.5 !px-2.5 !py-1 !text-sm`}><Camera size={15} /> Take photo<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} /></label>
-          <label className={`${btnGhost} inline-flex cursor-pointer items-center gap-1.5 !px-2.5 !py-1 !text-sm`}><Paperclip size={15} /> Choose files<input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} /></label>
+          <label className={`${btnGhost} inline-flex cursor-pointer items-center gap-1.5 !px-2.5 !py-1 !text-sm`}><Camera size={15} /> {t("Take photo")}<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} /></label>
+          <label className={`${btnGhost} inline-flex cursor-pointer items-center gap-1.5 !px-2.5 !py-1 !text-sm`}><Paperclip size={15} /> {t("Choose files")}<input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} /></label>
         </div>
       </div>
       {docs.length > 0 && (
@@ -174,9 +179,9 @@ function DocsPicker({ docs, setDocs, hint = "For example a photo of the damaged 
             <li key={i} className="flex flex-wrap items-center gap-2 rounded-md bg-slate-50 px-2 py-1.5 text-sm">
               {isImg(d.file.name) ? <ImageIcon size={16} className="text-slate-500" /> : <FileText size={16} className="text-slate-500" />}
               <span className="min-w-0 flex-1 truncate" title={d.file.name}>{d.file.name}</span>
-              <select value={d.kind} onChange={(e) => set(i, { kind: e.target.value as ExcDocKind })} className="rounded border border-slate-300 bg-white px-1.5 py-1 text-sm" aria-label={`What ${d.file.name} is`}>{EXC_DOC_KINDS.map((k) => <option key={k}>{k}</option>)}</select>
-              {(d.kind === "Credit note" || d.kind === "Debit note" || d.kind === "GRN") && <input value={d.number} onChange={(e) => set(i, { number: e.target.value })} placeholder={`${d.kind} no.`} className="w-32 rounded border border-slate-300 px-1.5 py-1 text-sm" aria-label={`${d.kind} number`} />}
-              <button onClick={() => setDocs(docs.filter((_, k) => k !== i))} className="text-slate-400 hover:text-rose-600" aria-label={`Remove ${d.file.name}`}><X size={15} /></button>
+              <select value={d.kind} onChange={(e) => set(i, { kind: e.target.value as ExcDocKind })} className="rounded border border-slate-300 bg-white px-1.5 py-1 text-sm" aria-label={`${t("What it is")}: ${d.file.name}`}>{EXC_DOC_KINDS.map((k) => <option key={k} value={k}>{t(k)}</option>)}</select>
+              {(d.kind === "Credit note" || d.kind === "Debit note" || d.kind === "GRN") && <input value={d.number} onChange={(e) => set(i, { number: e.target.value })} placeholder={`${t(d.kind)} ${t("no.")}`} className="w-32 rounded border border-slate-300 px-1.5 py-1 text-sm" aria-label={`${t(d.kind)} ${t("number")}`} />}
+              <button onClick={() => setDocs(docs.filter((_, k) => k !== i))} className="text-slate-400 hover:text-rose-600" aria-label={`${t("Remove")} ${d.file.name}`}><X size={15} /></button>
             </li>
           ))}
         </ul>
@@ -187,28 +192,29 @@ function DocsPicker({ docs, setDocs, hint = "For example a photo of the damaged 
 
 /** The papers kept with one exception: open them, or add more (also after it is settled). */
 function DocsModal({ sample, ex, me, onClose, onDone }: { sample: boolean; ex: DeliveryException; me: string; onClose: () => void; onDone: (r: Result) => void }) {
+  const { t } = useT();
   const [docs, setDocs] = useState<NewExcDoc[]>([]); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
   const kept = ex.docs ?? [];
   return (
-    <Modal title={`Documents for ${ex.docNo}`} onClose={onClose}>
-      <p className="text-sm text-slate-600">{ex.kind}: {ex.detail}</p>
+    <Modal title={t("Documents for {doc}", { doc: ex.docNo })} onClose={onClose}>
+      <p className="text-sm text-slate-600">{t(ex.kind)}: {ex.detail}</p>
       {kept.length ? (
         <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
           {kept.map((d) => (
             <li key={d.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
               {isImg(d.file) ? <ImageIcon size={16} className="text-slate-500" /> : <FileText size={16} className="text-slate-500" />}
-              <span className="font-medium text-slate-900">{d.kind}{d.number ? ` ${d.number}` : ""}</span>
+              <span className="font-medium text-slate-900">{t(d.kind)}{d.number ? ` ${d.number}` : ""}</span>
               <span className="min-w-0 flex-1 truncate text-slate-500">{d.file} · {d.by}, {d.at}</span>
               {d.path && !sample
-                ? <button onClick={async () => { const u = await excDocLink(d.path!); if (u) window.open(u, "_blank", "noopener"); else setErr("The file could not be opened."); }} className="text-indigo-700 hover:underline">Open</button>
-                : <span className="text-xs text-slate-400">{sample ? "Opens in the app" : ""}</span>}
+                ? <button onClick={async () => { const u = await excDocLink(d.path!); if (u) window.open(u, "_blank", "noopener"); else setErr(t("The file could not be opened.")); }} className="text-indigo-700 hover:underline">{t("Open")}</button>
+                : <span className="text-xs text-slate-400">{sample ? t("Opens in the app") : ""}</span>}
             </li>
           ))}
         </ul>
-      ) : <p className="mt-3 text-sm text-slate-500">No documents kept yet.</p>}
+      ) : <p className="mt-3 text-sm text-slate-500">{t("No documents kept yet.")}</p>}
       <DocsPicker docs={docs} setDocs={setDocs} />
-      {err && <p role="alert" className="mt-2 text-sm text-rose-700">{err}</p>}
-      <div className="mt-4 flex justify-end gap-2"><button onClick={onClose} className={btnGhost}>Close</button><button disabled={busy || !docs.length} onClick={async () => { setBusy(true); const r = await addExceptionDocs(sample, ex.id, docs, me); setBusy(false); if (r.ok) { onDone(r); setDocs([]); setErr(""); } else setErr(r.text); }} className={btnPrimary}>{busy ? "Saving…" : `Keep ${docs.length || ""} ${docs.length === 1 ? "document" : "documents"}`}</button></div>
+      {err && <p role="alert" className="mt-2 text-sm text-rose-700">{t(err)}</p>}
+      <div className="mt-4 flex justify-end gap-2"><button onClick={onClose} className={btnGhost}>{t("Close")}</button><button disabled={busy || !docs.length} onClick={async () => { setBusy(true); const r = await addExceptionDocs(sample, ex.id, docs, me); setBusy(false); if (r.ok) { onDone(r); setDocs([]); setErr(""); } else setErr(r.text); }} className={btnPrimary}>{busy ? t("Saving…") : t("Keep {n} {unit}", { n: docs.length || "", unit: t(docs.length === 1 ? "document" : "documents") })}</button></div>
     </Modal>
   );
 }

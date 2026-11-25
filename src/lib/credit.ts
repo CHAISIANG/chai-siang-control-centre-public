@@ -7,6 +7,17 @@ export const CHECKED_SALESMEN = ["MY01S00004", "MY01S00011", "MY01S00017", "MY01
 export const agentToCode = (agent: string | number | null | undefined) => (agent == null || agent === "" ? "" : `MY01S${String(agent).padStart(5, "0")}`);
 export const isSupermarket = (channel: string | null | undefined) => (channel ?? "").trim().toLowerCase() === "supermarket";
 
+/** A receipt in the daily payment file for an invoice that is still open in the aging (Finance has not posted it in SQL yet). */
+export type Unposted = { docNo: string; paid: number; date: string; receipt: string };
+export const unpostedTotal = (u?: Unposted[]) => Math.round((u ?? []).reduce((t, x) => t + x.paid, 0) * 100) / 100;
+/** About how much is still overdue once the unposted receipts are taken off (never below zero). */
+export const realOverdue = (overdue: number, u?: Unposted[]) => Math.max(0, Math.round((overdue - unpostedTotal(u)) * 100) / 100);
+
+/** A supermarket invoice still open in the aging. Supermarkets pay by collection summary, so Finance knocks them off by hand. */
+export type SupermarketInvoice = { docNo: string; customer: string; customerName: string; salesRep: string; amount: number; dueDate: string };
+/** An invoice Finance has marked as settled from a collection summary. This only marks it; the aging is not changed. */
+export type Settled = { id: string; docNo: string; customer: string; customerName: string; salesRep: string; amount: number; settledOn: string; summaryRef?: string; note?: string; by: string; at: string };
+
 /** What the aging report says about one customer. */
 export type CustomerAging = {
   code: string; name: string; channel: string | null;
@@ -15,6 +26,7 @@ export type CustomerAging = {
   oldestDays: number;    // days the oldest unpaid invoice is past due (0 if none)
   buckets: number[];     // [not due, 1-30, 31-60, 61-90, over 90]
   asAt: string | null;   // date of the aging report
+  unposted?: Unposted[]; // receipts already in the payment file but not yet posted in the aging
 };
 
 export type CreditCase = {
@@ -26,6 +38,7 @@ export type ApprovalStatus = "Waiting" | "Approved" | "Rejected";
 export type CreditApproval = {
   id: string; docNo: string; customer: string; customerName: string; salesRep: string; amount: number;
   overdue: number; oldestDays: number; buckets: number[]; asAt: string | null; file: string;
+  unposted?: Unposted[];
   status: ApprovalStatus; askedBy: string; askedAt: string; note?: string; decidedBy?: string; decidedAt?: string; decisionNote?: string;
 };
 export type CreditReminder = { id: string; salesRep: string; customer: string; customerName: string; docNo: string; amount: number; overdue: number; oldestDays: number; at: string; seen: boolean };
@@ -48,17 +61,28 @@ export const BUCKETS = ["Not due", "1–30", "31–60", "61–90", "90+"];
 
 // ---------- sample data (made up) ----------
 export const SAMPLE_AGING: CustomerAging[] = [
-  { code: "SAMPLE-C02", name: "Sample Pharmacy", channel: "Drugstore", owed: 6420.5, overdue: 2180.5, oldestDays: 47, buckets: [4240, 1300.5, 880, 0, 0], asAt: "2026-11-13" },
+  { code: "SAMPLE-C02", name: "Sample Pharmacy", channel: "Drugstore", owed: 6420.5, overdue: 2180.5, oldestDays: 47, buckets: [4240, 1300.5, 880, 0, 0], asAt: "2026-11-13", unposted: [{ docNo: "900S000010", paid: 1300.5, date: "2026-11-24", receipt: "TOR00-0001" }, { docNo: "900S000012", paid: 880, date: "2026-11-24", receipt: "TOR00-0001" }] },
   { code: "SAMPLE-C03", name: "Sample Cash & Carry Sdn Bhd", channel: "Supermarket", owed: 18950, overdue: 3120, oldestDays: 22, buckets: [15830, 3120, 0, 0, 0], asAt: "2026-11-13" },
   { code: "SAMPLE-C01", name: "Sample Mini Market", channel: "Superette/Mini-Marke", owed: 980, overdue: 0, oldestDays: 0, buckets: [980, 0, 0, 0, 0], asAt: "2026-11-13" },
 ];
 export const SAMPLE_APPROVALS: CreditApproval[] = [
-  { id: "a1", docNo: "900S000088", customer: "SAMPLE-C09", customerName: "Sample Kedai Runcit", salesRep: "MY01S00011", amount: 842.6, overdue: 5310.2, oldestDays: 96, buckets: [1200, 0, 1450, 2100, 1760.2], asAt: "2026-11-13", file: "Sample earlier file.xlsx", status: "Waiting", askedBy: "Finance clerk (sample)", askedAt: "2026-11-18", note: "Customer says payment next week" },
-  { id: "a3", docNo: "900S000091", customer: "SAMPLE-C14", customerName: "Sample Mini Market", salesRep: "MY01S00004", amount: 1265.4, overdue: 2380, oldestDays: 48, buckets: [640, 900, 1480, 0, 0], asAt: "2026-11-13", file: "Sample earlier file.xlsx", status: "Waiting", askedBy: "Finance clerk (sample)", askedAt: "2026-11-18" },
-  { id: "a4", docNo: "900S000092", customer: "SAMPLE-C14", customerName: "Sample Mini Market", salesRep: "MY01S00004", amount: 388.2, overdue: 2380, oldestDays: 48, buckets: [640, 900, 1480, 0, 0], asAt: "2026-11-13", file: "Sample earlier file.xlsx", status: "Waiting", askedBy: "Finance clerk (sample)", askedAt: "2026-11-18" },
+  { id: "a1", docNo: "900S000088", customer: "SAMPLE-C09", customerName: "Sample Kedai Runcit", salesRep: "MY01S00011", amount: 842.6, overdue: 5310.2, oldestDays: 96, buckets: [1200, 0, 1450, 2100, 1760.2], asAt: "2026-11-13", file: "Sample earlier file.xlsx", status: "Waiting", askedBy: "Finance clerk (sample)", askedAt: "2026-11-18", note: "Customer says payment next week", unposted: [{ docNo: "900S000031", paid: 1450, date: "2026-11-23", receipt: "TOR00-0002" }] },
+  { id: "a3", docNo: "900S000091", customer: "SAMPLE-C14", customerName: "Sample Mini Market", salesRep: "MY01S00004", amount: 1265.4, overdue: 2380, oldestDays: 48, buckets: [640, 900, 1480, 0, 0], asAt: "2026-11-13", file: "Sample earlier file.xlsx", status: "Waiting", askedBy: "Finance clerk (sample)", askedAt: "2026-11-18", unposted: [{ docNo: "900S000040", paid: 900, date: "2026-11-24", receipt: "TOR00-0003" }, { docNo: "900S000041", paid: 1480, date: "2026-11-24", receipt: "TOR00-0003" }] },
+  { id: "a4", docNo: "900S000092", customer: "SAMPLE-C14", customerName: "Sample Mini Market", salesRep: "MY01S00004", amount: 388.2, overdue: 2380, oldestDays: 48, buckets: [640, 900, 1480, 0, 0], asAt: "2026-11-13", file: "Sample earlier file.xlsx", status: "Waiting", askedBy: "Finance clerk (sample)", askedAt: "2026-11-18", unposted: [{ docNo: "900S000040", paid: 900, date: "2026-11-24", receipt: "TOR00-0003" }, { docNo: "900S000041", paid: 1480, date: "2026-11-24", receipt: "TOR00-0003" }] },
   { id: "a5", docNo: "900S000095", customer: "SAMPLE-C20", customerName: "Sample Pasar Mini", salesRep: "MY01S00017", amount: 2750, overdue: 6100, oldestDays: 121, buckets: [0, 0, 0, 2400, 3700], asAt: "2026-11-13", file: "Sample earlier file.xlsx", status: "Waiting", askedBy: "Finance clerk (sample)", askedAt: "2026-11-19", note: "Old customer, asking for one more delivery" },
   { id: "a2", docNo: "900S000079", customer: "SAMPLE-C11", customerName: "Sample Wholesale Trading", salesRep: "MY01S00021", amount: 4120, overdue: 960, oldestDays: 12, buckets: [8800, 960, 0, 0, 0], asAt: "2026-11-13", file: "Sample earlier file.xlsx", status: "Approved", askedBy: "Finance clerk (sample)", askedAt: "2026-11-17", decidedBy: "Finance manager (sample)", decidedAt: "2026-11-17", decisionNote: "Cheque received, clearing tomorrow" },
 ];
 export const SAMPLE_REMINDERS: CreditReminder[] = [
   { id: "m1", salesRep: "MY01S00004", customer: "SAMPLE-C03", customerName: "Sample Cash & Carry Sdn Bhd", docNo: "900S000077", amount: 1890, overdue: 3120, oldestDays: 22, at: "2026-11-17", seen: false },
+];
+
+export const SAMPLE_SUPERMARKET: SupermarketInvoice[] = [
+  { docNo: "900S000101", customer: "SAMPLE-C03", customerName: "Sample Cash & Carry Sdn Bhd", salesRep: "MY01S00011", amount: 1890, dueDate: "2026-11-02" },
+  { docNo: "900S000102", customer: "SAMPLE-C03", customerName: "Sample Cash & Carry Sdn Bhd", salesRep: "MY01S00011", amount: 1230, dueDate: "2026-11-09" },
+  { docNo: "900S000103", customer: "SAMPLE-C07", customerName: "Sample Hypermarket (Branch 1)", salesRep: "MY01S00017", amount: 5420.4, dueDate: "2026-11-12" },
+  { docNo: "900S000104", customer: "SAMPLE-C07", customerName: "Sample Hypermarket (Branch 1)", salesRep: "MY01S00017", amount: 3105, dueDate: "2026-11-16" },
+  { docNo: "900S000105", customer: "SAMPLE-C08", customerName: "Sample Hypermarket (Branch 2)", salesRep: "MY01S00004", amount: 2760.8, dueDate: "2026-11-20" },
+];
+export const SAMPLE_SETTLED: Settled[] = [
+  { id: "s1", docNo: "900S000090", customer: "SAMPLE-C03", customerName: "Sample Cash & Carry Sdn Bhd", salesRep: "MY01S00011", amount: 2210, settledOn: "2026-11-15", summaryRef: "Collection summary 1-15 Nov", note: "Transfer received", by: "Finance clerk (sample)", at: "2026-11-16" },
 ];

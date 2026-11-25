@@ -3,6 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, ListFilter } from "lucide-react";
 import { Th } from "@/components/ui";
+import { useT } from "@/lib/i18n";
 
 export type GridKind = "text" | "pick" | "date" | "num";
 export type GridCol<T> = {
@@ -72,6 +73,7 @@ export function useGrid<T>(rows: T[], cols: GridCol<T>[], first: GridSort, tieBr
 export function GridHead<T>({ col, grid, first, children }: {
   col: GridCol<T>; grid: Pick<ReturnType<typeof useGrid<T>>, "sort" | "filters" | "clickSort" | "setFilter">; first?: boolean; children?: ReactNode;
 }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const f = grid.filters[col.id] ?? {};
   const on = isFilterOn(f);
@@ -81,44 +83,44 @@ export function GridHead<T>({ col, grid, first, children }: {
   return (
     <Th first={first} right={col.right}>
       <span className={`relative inline-flex items-center gap-1 ${col.right ? "flex-row-reverse" : ""}`}>
-        <button onClick={() => grid.clickSort(col.id)} className="inline-flex items-center gap-1 hover:text-slate-900" aria-label={`Sort by ${col.label}`}>
-          {children ?? col.label}
+        <button onClick={() => grid.clickSort(col.id)} className="inline-flex items-center gap-1 hover:text-slate-900" aria-label={`${t("Sort by")} ${t(col.label)}`}>
+          {children ?? t(col.label)}
           {sorted ? (grid.sort.dir === 1 ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={13} className="text-slate-300" />}
         </button>
-        <button onClick={() => setOpen((o) => !o)} aria-label={`Filter ${col.label}`} aria-expanded={open}
+        <button onClick={() => setOpen((o) => !o)} aria-label={`${t("Filter")} ${t(col.label)}`} aria-expanded={open}
           className={`rounded p-0.5 ${on ? "bg-indigo-100 text-indigo-700" : "text-slate-400 hover:bg-slate-100 hover:text-slate-700"}`}><ListFilter size={14} /></button>
         {open && (
           <>
             <span className="fixed inset-0 z-20" onClick={() => setOpen(false)} aria-hidden />
             <span className={`absolute top-full z-30 mt-1 block w-60 rounded-lg border border-slate-200 bg-white p-3 text-left text-sm font-normal normal-case tracking-normal text-slate-700 shadow-lg ${col.right ? "right-0" : "left-0"}`}>
-              <span className="block font-medium text-slate-900">Filter {col.label.toLowerCase()}</span>
-              {col.kind === "text" && <input autoFocus className={numIn} placeholder="Contains…" value={f.text ?? ""} onChange={(e) => set({ ...f, text: e.target.value })} />}
+              <span className="block font-medium text-slate-900">{t("Filter")} {t(col.label).toLowerCase()}</span>
+              {col.kind === "text" && <input autoFocus className={numIn} placeholder={t("Contains…")} value={f.text ?? ""} onChange={(e) => set({ ...f, text: e.target.value })} />}
               {col.kind === "pick" && (
                 <span className="mt-1 block max-h-56 overflow-y-auto">
                   {(col.options ?? []).map((o) => (
                     <label key={o.code} className="flex cursor-pointer items-center gap-2 py-1">
                       <input type="checkbox" className="h-4 w-4" checked={!!f.pick?.includes(o.code)} onChange={(e) => set({ ...f, pick: e.target.checked ? [...(f.pick ?? []), o.code] : (f.pick ?? []).filter((c) => c !== o.code) })} />
-                      <span>{o.name}</span>
+                      <span>{t(o.name)}</span>
                     </label>
                   ))}
                 </span>
               )}
               {col.kind === "date" && (
                 <span className="mt-1 block space-y-1.5">
-                  <label className="block">From<input type="date" className={numIn} value={f.from ?? ""} onChange={(e) => set({ ...f, from: e.target.value })} /></label>
-                  <label className="block">To<input type="date" className={numIn} value={f.to ?? ""} onChange={(e) => set({ ...f, to: e.target.value })} /></label>
+                  <label className="block">{t("From")}<input type="date" className={numIn} value={f.from ?? ""} onChange={(e) => set({ ...f, from: e.target.value })} /></label>
+                  <label className="block">{t("To")}<input type="date" className={numIn} value={f.to ?? ""} onChange={(e) => set({ ...f, to: e.target.value })} /></label>
                 </span>
               )}
               {col.kind === "num" && (
                 <span className="mt-1 block space-y-1.5">
-                  <label className="block">At least<input inputMode="decimal" className={numIn} value={f.min ?? ""} onChange={(e) => set({ ...f, min: e.target.value })} /></label>
-                  <label className="block">At most<input inputMode="decimal" className={numIn} value={f.max ?? ""} onChange={(e) => set({ ...f, max: e.target.value })} /></label>
+                  <label className="block">{t("At least")}<input inputMode="decimal" className={numIn} value={f.min ?? ""} onChange={(e) => set({ ...f, min: e.target.value })} /></label>
+                  <label className="block">{t("At most")}<input inputMode="decimal" className={numIn} value={f.max ?? ""} onChange={(e) => set({ ...f, max: e.target.value })} /></label>
                   {col.hint && <span className="block text-xs text-slate-500">{col.hint}</span>}
                 </span>
               )}
               <span className="mt-2 flex justify-between">
-                <button onClick={() => set({})} disabled={!on} className="text-indigo-600 hover:underline disabled:text-slate-300 disabled:no-underline">Clear</button>
-                <button onClick={() => setOpen(false)} className="font-medium text-slate-700 hover:underline">Done</button>
+                <button onClick={() => set({})} disabled={!on} className="text-indigo-600 hover:underline disabled:text-slate-300 disabled:no-underline">{t("Clear")}</button>
+                <button onClick={() => setOpen(false)} className="font-medium text-slate-700 hover:underline">{t("Done")}</button>
               </span>
             </span>
           </>

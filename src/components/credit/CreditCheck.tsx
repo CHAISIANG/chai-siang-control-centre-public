@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { BellRing, Download, ShieldAlert } from "lucide-react";
 import { Badge, Card, Td, Th } from "@/components/ui";
+import { UnpostedNote } from "./UnpostedNote";
 import { BUCKETS, overdueText, type ApprovalStatus, type CreditCase } from "@/lib/credit";
 
 const money = (n: number) => n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -57,6 +58,7 @@ export function CreditCheck({ cases, status, salesmanName, onAsk, onDownloadAppr
                   <Td>
                     <div className="text-sm font-medium text-rose-700">{overdueText(c.aging)}</div>
                     <div className="text-xs text-slate-500">owes RM {money(c.aging.owed)} · {c.aging.buckets.map((b, i) => (b ? `${BUCKETS[i]}: ${money(b)}` : "")).filter(Boolean).join(" · ")}</div>
+                    <UnpostedNote overdue={c.aging.overdue} unposted={c.aging.unposted} supermarket={c.kind === "reminder"} />
                   </Td>
                   <Td>
                     {c.kind === "reminder" ? <Badge tone="blue">Reminder to sales rep</Badge> : <Badge tone={tone[s ?? "Not asked"]}>{s === "Waiting" ? "Waiting for approval" : s === "Rejected" ? "Rejected: stays out" : s ?? "Held, not asked yet"}</Badge>}

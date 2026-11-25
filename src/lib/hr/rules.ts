@@ -43,7 +43,10 @@ export const todayMY = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/
 export const nowMinutesMY = (d = new Date()) => { const [h, m] = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kuala_Lumpur", hour: "2-digit", minute: "2-digit", hour12: false }).format(d).split(":").map(Number); return h * 60 + m; };
 export const hm = (s: string) => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
 export const fmtHM = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
-export const fmtDate = (s: string, opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric" }) => toDate(s).toLocaleDateString("en-MY", { timeZone: "UTC", ...opts });
+/** Language of the dates shown on screen. The language switch sets it, so month and weekday names follow the chosen language. */
+let dateLocale = "en-MY";
+export const setDateLocale = (l: string) => { dateLocale = l; };
+export const fmtDate = (s: string, opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric" }) => toDate(s).toLocaleDateString(dateLocale, { timeZone: "UTC", ...opts });
 export function eachDay(from: string, to: string): string[] {
   const out: string[] = [];
   for (let d = from; d <= to; d = addDays(d, 1)) out.push(d);

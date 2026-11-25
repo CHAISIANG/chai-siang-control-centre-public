@@ -7,6 +7,8 @@ import { useData } from "@/components/data";
 import { BUCKETS, overdueText, type CreditApproval } from "@/lib/credit";
 import { decideCredit, useCreditSample, useCreditStore } from "@/lib/creditStore";
 import { useAuth } from "@/components/auth";
+import { UnpostedNote } from "@/components/credit/UnpostedNote";
+import { SupermarketSettle } from "@/components/credit/SupermarketSettle";
 
 const money = (n: number) => n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const day = (s?: string) => (s ? new Date(`${s}T00:00:00Z`).toLocaleDateString("en-MY", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "");
@@ -19,7 +21,7 @@ export default function CreditApprovals() {
   const [busy, setBusy] = useState(false);
   const { profile } = useAuth();
   const [err, setErr] = useState("");
-  const [tab, setTab] = useState<"Waiting" | "Decided">("Waiting");
+  const [tab, setTab] = useState<"Waiting" | "Decided" | "Supermarkets">("Waiting");
   const [deciding, setDeciding] = useState<{ items: CreditApproval[]; action: "Approved" | "Rejected" } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [note, setNote] = useState("");
@@ -34,7 +36,7 @@ export default function CreditApprovals() {
   useEffect(() => { if (allBox.current) allBox.current.indeterminate = sel.length > 0 && !all; }, [sel.length, all]);
   const toggle = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAll = () => setPicked(all ? new Set() : new Set(shown.map((a) => a.id)));
-  const switchTab = (t: "Waiting" | "Decided") => { setTab(t); setPicked(new Set()); };
+  const switchTab = (t: "Waiting" | "Decided" | "Supermarkets") => { setTab(t); setPicked(new Set()); };
 
   async function decide() {
     if (!deciding || busy) return;
@@ -65,11 +67,12 @@ export default function CreditApprovals() {
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-md border border-slate-300 p-0.5 text-sm">
-          {(["Waiting", "Decided"] as const).map((t) => <button key={t} onClick={() => switchTab(t)} className={`rounded px-3 py-1 ${tab === t ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{t === "Waiting" ? `Waiting (${waiting.length})` : "Decided"}</button>)}
+          {(["Waiting", "Decided", "Supermarkets"] as const).map((t) => <button key={t} onClick={() => switchTab(t)} className={`rounded px-3 py-1 ${tab === t ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{t === "Waiting" ? `Waiting (${waiting.length})` : t}</button>)}
         </div>
       </div>
       {msg && <p role="status" className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p>}
 
+      {tab === "Supermarkets" ? <SupermarketSettle isSample={isSample} by={profile?.full_name ?? "Finance"} /> : <>
       {shown.length > 0 && (
         <div className="sticky top-0 z-10 mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
           <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
@@ -108,6 +111,7 @@ export default function CreditApprovals() {
                 </div>
               ))}
             </div>
+            {a.status === "Waiting" && <UnpostedNote overdue={a.overdue} unposted={a.unposted} />}
             {a.status === "Waiting" ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 <button onClick={() => { setDeciding({ items: [a], action: "Approved" }); setNote(""); setErr(""); }} className={`${btnPrimary} inline-flex items-center gap-1.5`}><Check size={16} /> Approve</button>
@@ -117,6 +121,7 @@ export default function CreditApprovals() {
           </Card>
         ))}
       </div>
+      </>}
 
       {deciding && (
         <Modal title={`${deciding.action === "Approved" ? "Approve" : "Reject"} ${deciding.items.length === 1 ? deciding.items[0].docNo : `${deciding.items.length} invoices`}?`} onClose={() => setDeciding(null)}>

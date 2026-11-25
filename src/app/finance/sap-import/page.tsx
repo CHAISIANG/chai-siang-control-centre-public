@@ -10,7 +10,7 @@ import { BatchView, type Batch } from "./BatchView";
 import { CreditCheck } from "@/components/credit/CreditCheck";
 import { useData } from "@/components/data";
 import { CHECKED_SALESMEN, creditCases, SAMPLE_AGING, type CustomerAging } from "@/lib/credit";
-import { askCredit, statusByDoc, useCreditSample, useCreditStore } from "@/lib/creditStore";
+import { askCredit, loadUnposted, statusByDoc, useCreditSample, useCreditStore } from "@/lib/creditStore";
 import { useAuth } from "@/components/auth";
 
 const rm = (n: number) => n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -115,8 +115,10 @@ export default function SapImport() {
         const { data: rows, error } = await supabase.rpc("credit_aging", { p_customers: custs });
         if (!on) return;
         if (error) { setMsg({ ok: false, text: `The credit check could not read the aging report: ${error.message}` }); return; }
+        const unposted = await loadUnposted(custs);
+        if (!on) return;
         for (const r of (rows ?? []) as { code: string; name: string; channel: string | null; owed: number; overdue: number; oldest_days: number; buckets: number[]; as_at: string | null }[])
-          map.set(r.code, { code: r.code, name: r.name, channel: r.channel, owed: Number(r.owed), overdue: Number(r.overdue), oldestDays: r.oldest_days, buckets: r.buckets.map(Number), asAt: r.as_at });
+          map.set(r.code, { code: r.code, name: r.name, channel: r.channel, owed: Number(r.owed), overdue: Number(r.overdue), oldestDays: r.oldest_days, buckets: r.buckets.map(Number), asAt: r.as_at, unposted: unposted.get(r.code) });
       }
       if (on) setAging({ for: data, map });
     })();

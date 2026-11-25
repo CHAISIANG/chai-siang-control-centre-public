@@ -2,10 +2,11 @@
 // Only signed-in people with Finance manage or "My PO orders" access may use it. Nothing about the document is stored:
 // only who used it, when, the model and the token counts (table po_read_log), so spending can be watched and capped.
 // Secrets: ANTHROPIC_API_KEY (required). Optional: READ_MODEL (default claude-opus-5-5), READ_DAILY_CAP (reads per person per day, default 60),
-// READ_TOTAL_DAILY_CAP (all people, default 300).
+// READ_TOTAL_DAILY_CAP (all people, default 300). Scanned POD batches (kind "pod", a few pages per read) have their own caps:
+// READ_POD_MODEL (default claude-sonnet-5-5), READ_POD_DAILY_CAP (reads per person per day, default 150), READ_POD_TOTAL_DAILY_CAP (default 400).
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
-import { cleanInvoice, cleanPo, decodedSize, IMAGE_TYPES, INVOICE_PROMPT, INVOICE_SCHEMA, MAX_BYTES, PO_PROMPT, PO_SCHEMA } from "./schema.ts";
+import { cleanInvoice, cleanPo, cleanPod, decodedSize, IMAGE_TYPES, INVOICE_PROMPT, INVOICE_SCHEMA, MAX_BYTES, PO_PROMPT, PO_SCHEMA, POD_PROMPT, POD_SCHEMA } from "./schema.ts";
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
@@ -23,16 +24,21 @@ Deno.serve(async (req) => {
   const { data: auth, error: authErr } = await admin.auth.getUser(token);
   if (authErr || !auth.user) return json({ error: "You are not signed in." }, 401);
   const asUser = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${token}` } } });
-  const [mgr, mine] = await Promise.all([asUser.rpc("has_perm", { p: "finance_manage" }), asUser.rpc("has_perm", { p: "page_po_mine" })]);
-  if (!mgr.data && !mine.data) return json({ error: "Your role cannot use the document reader." }, 403);
+  const [mgr, mine, pods] = await Promise.all([asUser.rpc("has_perm", { p: "finance_manage" }), asUser.rpc("has_perm", { p: "page_po_mine" }), asUser.rpc("has_perm", { p: "delivery_update" })]);
+  if (!mgr.data && !mine.data && !pods.data) return json({ error: "Your role cannot use the document reader." }, 403);
 
   // ---- the request ----
-  let body: { kind?: string; mime?: string; data?: string };
+  let body: { kind?: string; mime?: string; data?: string; pages?: number };
   try { body = await req.json(); } catch { return json({ error: "Bad request." }, 400); }
-  const kind = body.kind === "po" || body.kind === "invoice" ? body.kind : null;
+  const kind = body.kind === "po" || body.kind === "invoice" || body.kind === "pod" ? body.kind : null;
   const mime = String(body.mime ?? "");
   const data = typeof body.data === "string" ? body.data : "";
-  if (!kind) return json({ error: "Say whether this is a PO or an invoice." }, 400);
+  if (!kind) return json({ error: "Say whether this is a PO, an invoice or scanned delivery pages." }, 400);
+  // PO and invoice reads need the PO/finance permissions; scanned POD pages need the delivery permission (or finance)
+  if (kind === "pod" ? !pods.data && !mgr.data : !mgr.data && !mine.data) return json({ error: "Your role cannot use the document reader for this." }, 403);
+  const pageCount = Number(body.pages);
+  if (kind === "pod" && (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > 20)) return json({ error: "Send between 1 and 20 pages at a time." }, 400);
+  if (kind === "pod" && mime !== "application/pdf") return json({ error: "Scanned pages must come as a PDF." }, 400);
   if (mime !== "application/pdf" && !IMAGE_TYPES.includes(mime)) return json({ error: "Use a PDF or a photo (JPG, PNG)." }, 400);
   if (!data || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return json({ error: "The file could not be read." }, 400);
   if (decodedSize(data) > MAX_BYTES) return json({ error: "The file is too large to read. Use one under 4 MB, or a smaller photo." }, 413);
@@ -42,16 +48,19 @@ Deno.serve(async (req) => {
 
   // ---- spending caps ----
   const since = `${myt()}T00:00:00+08:00`;
-  const perPerson = Number(Deno.env.get("READ_DAILY_CAP") ?? 60), total = Number(Deno.env.get("READ_TOTAL_DAILY_CAP") ?? 300);
+  const isPod = kind === "pod";
+  const perPerson = isPod ? Number(Deno.env.get("READ_POD_DAILY_CAP") ?? 150) : Number(Deno.env.get("READ_DAILY_CAP") ?? 60);
+  const total = isPod ? Number(Deno.env.get("READ_POD_TOTAL_DAILY_CAP") ?? 400) : Number(Deno.env.get("READ_TOTAL_DAILY_CAP") ?? 300);
+  const kinds = isPod ? ["pod"] : ["po", "invoice"];   // each kind of reading is counted on its own
   const [mineCount, allCount] = await Promise.all([
-    admin.from("po_read_log").select("id", { count: "exact", head: true }).eq("user_id", auth.user.id).gte("created_at", since),
-    admin.from("po_read_log").select("id", { count: "exact", head: true }).gte("created_at", since),
+    admin.from("po_read_log").select("id", { count: "exact", head: true }).eq("user_id", auth.user.id).in("kind", kinds).gte("created_at", since),
+    admin.from("po_read_log").select("id", { count: "exact", head: true }).in("kind", kinds).gte("created_at", since),
   ]);
   if ((mineCount.count ?? 0) >= perPerson) return json({ code: "cap", error: `You have used today's limit of ${perPerson} document reads. Type this one in, or try again tomorrow.` }, 429);
   if ((allCount.count ?? 0) >= total) return json({ code: "cap", error: "The company's daily limit of document reads has been reached. Type this one in, or try again tomorrow." }, 429);
 
   // ---- read it ----
-  const model = Deno.env.get("READ_MODEL") ?? "claude-opus-5-5";
+  const model = isPod ? (Deno.env.get("READ_POD_MODEL") ?? "claude-sonnet-5-5") : (Deno.env.get("READ_MODEL") ?? "claude-opus-5-5");
   const client = new Anthropic({ apiKey: key });
   const source = mime === "application/pdf"
     ? { type: "document" as const, source: { type: "base64" as const, media_type: "application/pdf" as const, data } }
@@ -64,9 +73,9 @@ Deno.serve(async (req) => {
       max_tokens: 8000,
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
-      system: kind === "po" ? PO_PROMPT : INVOICE_PROMPT,
-      output_config: { effort: "medium", format: { type: "json_schema", schema: kind === "po" ? PO_SCHEMA : INVOICE_SCHEMA } },
-      messages: [{ role: "user", content: [source, { type: "text", text: "Read this document." }] }],
+      system: isPod ? POD_PROMPT : kind === "po" ? PO_PROMPT : INVOICE_PROMPT,
+      output_config: { effort: "medium", format: { type: "json_schema", schema: isPod ? POD_SCHEMA : kind === "po" ? PO_SCHEMA : INVOICE_SCHEMA } },
+      messages: [{ role: "user", content: [source, { type: "text", text: isPod ? `This file has ${pageCount} page${pageCount === 1 ? "" : "s"}. Read each page.` : "Read this document." }] }],
     });
   } catch (e) {
     const status = typeof (e as { status?: number }).status === "number" ? (e as { status: number }).status : 0;
@@ -85,5 +94,5 @@ Deno.serve(async (req) => {
   try { parsed = JSON.parse(block && block.type === "text" ? block.text : ""); } catch { await log(false, "bad_json"); return json({ error: "The reader gave an answer that could not be used. Try again, or type it in by hand." }, 502); }
 
   await log(true);
-  return json({ ok: true, kind, data: kind === "po" ? cleanPo(parsed) : cleanInvoice(parsed) });
+  return json({ ok: true, kind, data: isPod ? cleanPod(parsed, pageCount) : kind === "po" ? cleanPo(parsed) : cleanInvoice(parsed) });
 });

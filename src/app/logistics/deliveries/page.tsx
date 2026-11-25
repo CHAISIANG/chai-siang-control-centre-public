@@ -3,14 +3,15 @@ import { canLoad, cleanPlate, useFleet, warnings } from "@/lib/fleet";
 import { LoadOnto } from "@/components/delivery/LoadOnto";
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
-import { FileSpreadsheet, Printer, Upload, X } from "lucide-react";
+import { FileSpreadsheet, FileStack, Printer, Upload, X } from "lucide-react";
 import { Badge, Card, Kpi, KpiStrip, PageHeader, Td } from "@/components/ui";
 import { Modal, btnGhost, btnPrimary, inputCls } from "@/components/finui";
 import { useAuth } from "@/components/auth";
 import { exportExcel, GridHead, PrintSheet, useGrid, usePrintA4, type ExcelCol, type GridCol, type PrintCol } from "@/components/grid";
 import { STATUSES, STATUS_HELP, statusTone, vehicleText, type DeliveryJob, type Status, type Vehicle } from "@/lib/delivery/rules";
 import { useT } from "@/lib/i18n";
-import { attachPods, markDelivered, markFailed, markLoaded, markPicked, podLink, replan, resetDelivery, setDocCase, useDelivery, useDeliverySample, type Result } from "@/lib/delivery/store";
+import { PodBatch } from "@/components/delivery/PodBatch";
+import { attachBatchPods, attachPods, markDelivered, markFailed, markLoaded, markPicked, podLink, replan, resetDelivery, setDocCase, useDelivery, useDeliverySample, type Result } from "@/lib/delivery/store";
 
 const money = (n: number) => n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const day = (s: string) => (s ? new Date(`${s.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }) : "–");
@@ -47,6 +48,7 @@ export default function Deliveries() {
   const [msg, setMsg] = useState<(Result & { extra?: string[] }) | null>(null);
   const [busy, setBusy] = useState(false);
   const files = useRef<HTMLInputElement>(null);
+  const [batch, setBatch] = useState(false);
   const { pageStyle, print } = usePrintA4();
 
   const onLorry = (j: DeliveryJob) => !lorry || (lorry === "third" ? j.vehicle?.kind === "third" : j.vehicle?.kind === "own" && cleanPlate(j.vehicle.lorryNo ?? "") === lorry);
@@ -132,6 +134,7 @@ export default function Deliveries() {
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search invoice, customer or route")} className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm sm:w-56 sm:flex-none" aria-label={t("Search")} />
               <input ref={files} type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => void onFiles(e.target.files)} />
               <button onClick={() => files.current?.click()} disabled={busy} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Upload size={16} /> {t("Upload PODs")}</button>
+              <button onClick={() => setBatch(true)} disabled={busy} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><FileStack size={16} /> {t("Upload PDF batch")}</button>
               <button onClick={() => { setBusy(true); void exportExcel(rows, excelCols, "Deliveries.xlsx", "Deliveries", `Total (${rows.length.toLocaleString()} invoices)`).finally(() => setBusy(false)); }} disabled={busy || !rows.length} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><FileSpreadsheet size={16} /> {t("Export Excel")}</button>
               <button onClick={print} disabled={!rows.length} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Printer size={16} /> {t("Print A4")}</button>
             </div>
@@ -211,6 +214,7 @@ export default function Deliveries() {
       </div>
 
       {loading && <LoadModal count={selected.length} sample={sample} onClose={() => setLoading(false)} onLoad={async (v, route) => { const r = await run(() => markLoaded(sample, selected, v, route, me), true); if (r.ok) setLoading(false); return r; }} />}
+      {batch && <PodBatch jobs={jobs} sample={sample} onClose={() => setBatch(false)} onAttach={(items, file, source) => run(() => attachBatchPods(sample, items, file, me, source))} />}
       {current && <JobModal job={current} sample={sample} me={me} onClose={() => setOpen(null)} run={run} />}
 
       <PrintSheet title={lorry ? `Deliveries · ${lorry === "third" ? "3rd-party transporters" : lorry}` : "Deliveries"} rows={rows} cols={printCols} rowKey={(j) => j.docNo} totalLabel={`Total · ${plural(rows.length, "invoice", "invoices")}`} size="8.5pt"

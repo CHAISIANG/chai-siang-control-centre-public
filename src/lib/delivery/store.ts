@@ -6,6 +6,7 @@ import { createContext, createElement, useContext, useSyncExternalStore, type Re
 import { supabase } from "@/lib/supabase";
 import { docFromFileName, EXC_DOC_KINDS, EXC_KINDS, CAUSES, DECISIONS, type Cause, type DamagedItem, type DeliveryException, type DeliveryJob, type Decision, type DocCase, type ExcDoc, type ExcDocKind, type ExcKind, type Status, type Vehicle } from "./rules";
 import { SAMPLE_DAMAGED, SAMPLE_EXCEPTIONS, SAMPLE_JOBS } from "./sample";
+import { buildPodFiles } from "./podReader";
 
 export type DeliveryState = { jobs: DeliveryJob[]; exceptions: DeliveryException[]; damaged: DamagedItem[]; loading?: boolean };
 export type Result = { ok: true; text: string; extra?: string[] } | { ok: false; text: string };
@@ -155,6 +156,8 @@ export async function setDocCase(useSample: boolean, doc: string, c: DocCase): P
   return done;
 }
 
+const noPrefix = (d: string) => d.replace(/^101(?=S)/i, "");
+
 /** Attach scanned PODs. Each file is matched to an invoice by the number in its name; only Delivered invoices can be completed. */
 export async function attachPods(useSample: boolean, files: File[], by: string): Promise<Result> {
   let done = 0; const problems: string[] = [];
@@ -163,29 +166,56 @@ export async function attachPods(useSample: boolean, files: File[], by: string):
     const f = file.name;
     const doc = docFromFileName(f);
     if (!doc) { problems.push(`${f}: no invoice number in the file name`); continue; }
-    const j = jobs.find((x) => x.docNo === doc);
+    // the delivery list keeps the SAP number (101S159676); the file name and the aging use S159676, so match either way
+    const j = jobs.find((x) => noPrefix(x.docNo) === doc);
     if (!j) { problems.push(`${f}: invoice ${doc} is not in the delivery list`); continue; }
-    if (j.status === "Completed") { problems.push(`${f}: ${doc} already has a POD`); continue; }
-    if (j.status !== "Delivered") { problems.push(`${f}: ${doc} is ${j.status}, a POD can only be attached once it is Delivered`); continue; }
+    const key = j.docNo;
+    if (j.status === "Completed") { problems.push(`${f}: ${key} already has a POD`); continue; }
+    if (j.status !== "Delivered") { problems.push(`${f}: ${key} is ${j.status}, a POD can only be attached once it is Delivered`); continue; }
     if (useSample) {
-      jobs = jobs.map((x) => (x.docNo === doc ? { ...x, status: "Completed" as const, podFile: f, events: [...x.events, { at: stamp(), status: "Completed" as const, by, note: "POD scanned" }] } : x));
+      jobs = jobs.map((x) => (x.docNo === key ? { ...x, status: "Completed" as const, podFile: f, events: [...x.events, { at: stamp(), status: "Completed" as const, by, note: "POD scanned" }] } : x));
       done++;
       continue;
     }
     // live: store the scan privately, then let the database complete the job
-    let path = `${doc}/${f}`;
+    let path = `${key}/${f}`;
     let up = await supabase.storage.from("pod-scans").upload(path, file, { upsert: false, contentType: file.type || undefined });
-    if (up.error && /exists|duplicate/i.test(up.error.message)) { path = `${doc}/${Date.now()}-${f}`; up = await supabase.storage.from("pod-scans").upload(path, file, { upsert: false, contentType: file.type || undefined }); }
+    if (up.error && /exists|duplicate/i.test(up.error.message)) { path = `${key}/${Date.now()}-${f}`; up = await supabase.storage.from("pod-scans").upload(path, file, { upsert: false, contentType: file.type || undefined }); }
     if (up.error) { problems.push(`${f}: could not be uploaded (${up.error.message})`); continue; }
-    const { error } = await supabase.rpc("delivery_attach_pod", { p_doc: doc, p_path: path, p_file: f });
+    const { error } = await supabase.rpc("delivery_attach_pod", { p_doc: key, p_path: path, p_file: f });
     if (error) { await supabase.storage.from("pod-scans").remove([path]); problems.push(`${f}: ${dbFail(error).text}`); continue; }
-    jobs = jobs.map((x) => (x.docNo === doc ? { ...x, status: "Completed" as const } : x));
+    jobs = jobs.map((x) => (x.docNo === key ? { ...x, status: "Completed" as const } : x));
     done++;
   }
   if (useSample && done) setSample({ ...sample, jobs });
   if (!useSample && done) await reloadDelivery();
   if (!done) return fail(problems[0] ?? "No files chosen.");
   return { ok: true, text: `${plural(done, "POD", "PODs")} attached and completed.${problems.length ? ` ${plural(problems.length, "file", "files")} not used.` : ""}`, extra: problems };
+}
+/**
+ * Attach the pages of one scanned PDF to the invoices a person has checked. Live: one PDF is cut for each invoice and goes
+ * through the same safe route as a single upload (stored privately, then the database completes the job). Sample: only the screen changes.
+ */
+export async function attachBatchPods(useSample: boolean, items: { doc: string; pages: number[] }[], file: string, by: string, source: File | null = null): Promise<Result> {
+  if (!items.length) return fail("Nothing to attach.");
+  if (!useSample) {
+    if (!source) return fail("The PDF is no longer open. Choose it again.");
+    let files: File[];
+    try { files = await buildPodFiles(source, items); } catch { return fail("The PDF could not be cut into pages. Try again."); }
+    return attachPods(false, files, by);
+  }
+  let jobs = cur(true).jobs; let n = 0;
+  for (const it of items) {
+    const j = jobs.find((x) => x.docNo.replace(/^101(?=S)/i, "") === it.doc);
+    if (!j || j.status !== "Delivered") continue;
+    const first = Math.min(...it.pages), last = Math.max(...it.pages);
+    const label = `${file} (${it.pages.length === 1 ? `page ${first}` : `pages ${first}–${last}`})`;
+    jobs = jobs.map((x) => (x.docNo === j.docNo ? { ...x, status: "Completed" as const, podFile: label, events: [...x.events, { at: stamp(), status: "Completed" as const, by, note: "POD scanned (batch)" }] } : x));
+    n++;
+  }
+  if (!n) return fail("None of these invoices can take a POD now. Check the list again.");
+  setSample({ ...sample, jobs });
+  return { ok: true, text: `${plural(n, "POD", "PODs")} attached and completed.` };
 }
 /** A short-lived link to open a scanned POD (live only). */
 export async function podLink(path: string): Promise<string | null> {

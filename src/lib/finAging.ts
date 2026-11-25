@@ -66,3 +66,22 @@ export const SAMPLE_AGING_INVS: AgingInv[] = [
   s("S900113", "2026-10-25", "SAMPLE-C08", "Sample Hardware & Daily Needs", "3", "2026-11-24", 1175.3),
   s("S900114", "2026-09-18", "SAMPLE-C09", "Sample Sundry Shop", "7", "2026-10-18", 880.0),
 ];
+
+/** Made-up receipts not yet posted, for the preview (customer code -> receipts). */
+export const SAMPLE_UNPOSTED: Record<string, import("./credit").Unposted[]> = {
+  "SAMPLE-C02": [{ docNo: "S900104", paid: 5310.2, date: "2026-11-24", receipt: "TOR00-0007" }],
+  "SAMPLE-C06": [{ docNo: "S900111", paid: 1000, date: "2026-11-23", receipt: "TOR00-0008" }],
+};
+
+/** Extra facts about customers and invoices that the aging report itself does not carry. */
+export type AgingExtras = {
+  channel: Record<string, string | undefined>;                 // customer code -> sales channel, for example "Supermarket"
+  settled: Record<string, { on: string; ref?: string }>;       // invoice -> marked settled by Finance from a collection summary
+};
+export const isSupermarketChannel = (c?: string | null) => (c ?? "").trim().toLowerCase() === "supermarket";
+export const NO_EXTRAS: AgingExtras = { channel: {}, settled: {} };
+/** Made-up channels and settlements for the preview. */
+export const SAMPLE_EXTRAS: AgingExtras = {
+  channel: { "SAMPLE-C03": "Supermarket", "SAMPLE-C07": "Supermarket", "SAMPLE-C02": "Drugstore" },
+  settled: { S900106: { on: "2026-11-18", ref: "Collection summary 1-15 Nov" } },
+};

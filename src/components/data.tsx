@@ -2,7 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./auth";
-import { buildCustomers, buildSalesmen, DAYS_ELAPSED, type ArRow, type Claim, type ClaimStatus, type Customer, type CustomerRow, type CustSalesRow, type Lorry, type MonthlyRow, type Salesman, type SalesmanRow } from "@/lib/mock";
+import { buildCustomers, buildSalesmen, CUR, DAYS_ELAPSED, YEAR, type ArRow, type Claim, type ClaimStatus, type Customer, type CustomerRow, type CustSalesRow, type Lorry, type MonthlyRow, type Salesman, type SalesmanRow } from "@/lib/mock";
 import { setCompanyLine, setDistributorRep, type FormKey } from "@/lib/paf";
 
 export type UploadRow = { report: string; file_name: string | null; row_count: number | null; status: string; uploaded_at: string };
@@ -18,7 +18,7 @@ type Ctx = {
   lorries: Lorry[];
   /** Date of the aging report, for example 2026-11-13. Empty until the reports are loaded. */
   asAt: string;
-  /** Days of November in the sales figures (the day of the latest invoice). */
+  /** Days of this month in the sales figures (the day of the latest invoice this month; 0 before the first one). */
   mtdDay: number;
   uploads: UploadRow[];
   /** Fetch everything again, for example after reports were uploaded. */
@@ -65,7 +65,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     (async () => {
       const [sm, mo, cu, cl, lo, st, ar, cs, dly, up] = await Promise.all([
         supabase.from("salesmen").select("code, name, area").order("code"),
-        supabase.from("salesman_monthly").select("salesman_code, month, rl_acct, active_acct, erc, sales_target, net_sales").eq("year", 2026),
+        supabase.from("salesman_monthly").select("salesman_code, month, rl_acct, active_acct, erc, sales_target, net_sales").eq("year", YEAR),
         supabase.from("customers").select("code, name, channel, route_name, visit_day, payment_term, salesman_code").order("name").limit(2000),
         fetchClaims(),
         fetchLorries(),
@@ -77,7 +77,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         supabase.from("upload_log").select("report, file_name, row_count, status, uploaded_at").order("uploaded_at", { ascending: false }).limit(40),
       ]);
       const arRows = (ar.data ?? []) as (ArRow & { as_at: string })[];
-      const lastDay = ((dly.data ?? []) as { sale_date: string }[]).map((d) => d.sale_date).sort().pop();
+      const ym = `${YEAR}-${String(CUR + 1).padStart(2, "0")}`;
+      const lastDay = ((dly.data ?? []) as { sale_date: string }[]).map((d) => d.sale_date).filter((d) => d.startsWith(ym)).sort().pop();
       for (const row of (st.data ?? []) as { key: string; value: string }[]) {
         if (row.key === "paf_company_line") setCompanyLine(row.value);
         if (row.key === "paf_distributor_rep") setDistributorRep(row.value);
@@ -88,7 +89,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         loading: false, error,
         salesmenRows: (sm.data ?? []) as SalesmanRow[], monthly: (mo.data ?? []) as MonthlyRow[], customerRows: (cu.data ?? []) as CustomerRow[],
         claimRows: cl.rows, lorries: lo.lorries,
-        ar: arRows, custSales: (cs.data ?? []) as CustSalesRow[], asAt: arRows[0]?.as_at ?? "", mtdDay: lastDay ? Number(lastDay.slice(8, 10)) : DAYS_ELAPSED, uploads: (up.data ?? []) as UploadRow[],
+        ar: arRows, custSales: (cs.data ?? []) as CustSalesRow[], asAt: arRows[0]?.as_at ?? "", mtdDay: lastDay ? Number(lastDay.slice(8, 10)) : 0, uploads: (up.data ?? []) as UploadRow[],
       });
     })();
     return () => { active = false; };

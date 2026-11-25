@@ -7,7 +7,7 @@ import { Badge, Card, PageHeader, Td, Th } from "@/components/ui";
 import { btnGhost, btnPrimary } from "@/components/finui";
 import { useData } from "@/components/data";
 import { useRole } from "@/components/role";
-import { NOV, sumStats } from "@/lib/mock";
+import { CUR, MONTHS, sumStats } from "@/lib/mock";
 import { uploadReports, type UploadResult } from "@/lib/reportsUpload";
 import { agingAsAt, crossChecks, detectReport, KIND_LABEL, parseAging, parseCoverage, parseCustomers, parseProducts, type Aging, type Coverage, type CustomerReport, type Kind, type ProductSales, type Row } from "@/lib/reports";
 
@@ -66,7 +66,7 @@ export default function UploadPage() {
 
   // What the system holds today, worked out from what is already on screen.
   const now = useMemo(() => {
-    const novSales = sumStats(salesmen, NOV).sales;
+    const novSales = sumStats(salesmen, CUR).sales;
     return {
       owed: customers.reduce((s, c) => s + c.outstanding, 0), owing: customers.filter((c) => c.outstanding > 0).length,
       nov: novSales, ytd: salesmen.reduce((s, sm) => s + sm.stats.reduce((a, st) => a + st.sales, 0), 0), salesmen: salesmen.length,
@@ -82,7 +82,7 @@ export default function UploadPage() {
 
   const changes: { what: string; now: string; next: string; same: boolean }[] = [];
   if (data.aging) changes.push({ what: "Owed to us (open invoices)", now: `${rm(now.owed)} from ${now.owing} customers`, next: `${rm(data.aging.sum)} from ${new Set(data.aging.invoices.map((i) => i.custCode)).size} customers · as at ${dmy(newAsAt)}`, same: Math.round(now.owed) === Math.round(data.aging.sum) });
-  if (data.coverage?.total) changes.push({ what: "November sales and coverage", now: `${rm(now.nov)} · ${now.salesmen} salesmen`, next: `${rm(data.coverage.total.sales[10] ?? 0)} · ${data.coverage.reps.length} salesmen`, same: Math.round(now.nov) === Math.round(data.coverage.total.sales[10] ?? 0) });
+  if (data.coverage?.total) changes.push({ what: `${MONTHS[CUR]} sales and coverage`, now: `${rm(now.nov)} · ${now.salesmen} salesmen`, next: `${rm(data.coverage.total.sales[CUR] ?? 0)} · ${data.coverage.reps.length} salesmen`, same: Math.round(now.nov) === Math.round(data.coverage.total.sales[CUR] ?? 0) });
   if (data.coverage?.total) changes.push({ what: "Sales this year", now: rm(now.ytd), next: rm(data.coverage.total.ytd.sales ?? 0), same: Math.round(now.ytd) === Math.round(data.coverage.total.ytd.sales ?? 0) });
   if (data.products) changes.push({ what: "Invoice lines by product", now: `${rm(now.nov)} net so far this month`, next: `${data.products.lines.length.toLocaleString()} lines, ${rm(data.products.net)} net, ${dmy(data.products.lines.map((l) => l.date).sort()[0])} to ${dmy(data.products.lines.map((l) => l.date).sort().pop() ?? "")}`, same: Math.round(now.nov) === Math.round(data.products.net) });
   if (data.customers) changes.push({ what: "Sales by customer", now: rm(now.custYtd), next: `${rm(data.customers.sum)} · ${data.customers.customers.filter((c) => c.ytd !== 0).length} customers bought`, same: Math.round(now.custYtd) === Math.round(data.customers.sum) });
@@ -146,7 +146,7 @@ export default function UploadPage() {
               <thead className="border-b border-slate-200"><tr><Th first>Report</Th><Th right>Rows</Th><Th>Key numbers</Th><Th>Left out</Th></tr></thead>
               <tbody>
                 {data.aging && <tr className="border-b border-slate-100"><Td first className="font-medium">{KIND_LABEL.aging}</Td><Td right>{data.aging.invoices.length.toLocaleString()}</Td><Td className="!whitespace-normal">{rm(data.aging.sum)} owed · as at {dmy(newAsAt)}{data.aging.leftOut.count > 0 && ` · ${data.aging.leftOut.count} PV, OR and TOR lines left out`}</Td><Td>–</Td></tr>}
-                {data.coverage && <tr className="border-b border-slate-100"><Td first className="font-medium">{KIND_LABEL.coverage}</Td><Td right>{data.coverage.reps.length} salesmen</Td><Td className="!whitespace-normal">{rm(data.coverage.total?.sales[10] ?? 0)} in November · {rm(data.coverage.total?.ytd.sales ?? 0)} this year</Td><Td className="!whitespace-normal">{data.coverage.skipped.length ? `${data.coverage.skipped.length} salesmen on the never-load list` : "–"}</Td></tr>}
+                {data.coverage && <tr className="border-b border-slate-100"><Td first className="font-medium">{KIND_LABEL.coverage}</Td><Td right>{data.coverage.reps.length} salesmen</Td><Td className="!whitespace-normal">{rm(data.coverage.total?.sales[CUR] ?? 0)} in {MONTHS[CUR]} · {rm(data.coverage.total?.ytd.sales ?? 0)} this year</Td><Td className="!whitespace-normal">{data.coverage.skipped.length ? `${data.coverage.skipped.length} salesmen on the never-load list` : "–"}</Td></tr>}
                 {data.products && <tr className="border-b border-slate-100"><Td first className="font-medium">{KIND_LABEL.products}</Td><Td right>{data.products.lines.length.toLocaleString()}</Td><Td className="!whitespace-normal">{rm(data.products.net)} net · {new Set(data.products.lines.map((l) => l.invoice)).size} invoices</Td><Td>{data.products.skippedLines ? `${data.products.skippedLines} lines` : "–"}</Td></tr>}
                 {data.customers && <tr className="border-b border-slate-100"><Td first className="font-medium">{KIND_LABEL.customers}</Td><Td right>{data.customers.customers.length.toLocaleString()}</Td><Td className="!whitespace-normal">{rm(data.customers.sum)} this year · {data.customers.customers.filter((c) => c.ytd !== 0).length} customers bought</Td><Td>–</Td></tr>}
               </tbody>

@@ -1,56 +1,41 @@
 import type { FormKey } from "./paf";
 
 // Shapes used by the pages. Real rows come from Supabase (salesmen, monthly sales and coverage, customers, open invoices, claims, lorries).
-// Anything the database does not have yet (credit limits, collection, deliveries) is sample data
-// generated here with a seeded random generator, so it looks the same on every load.
 
-function rng(seed: number) {
-  let a = seed;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+export const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** The reporting period for a date (yyyy-mm-dd): the year, this month's index (0 = Jan), its length and the day reached. */
+export function periodOf(iso: string) {
+  const year = Number(iso.slice(0, 4)), cur = Number(iso.slice(5, 7)) - 1;
+  return { year, cur, months: MONTH_NAMES.slice(0, cur + 1), daysInMonth: new Date(Date.UTC(year, cur + 1, 0)).getUTCDate(), day: Number(iso.slice(8, 10)) };
 }
-const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+const NOW = periodOf(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur" }).format(new Date()));
+export const YEAR = NOW.year;
+/** This month (0 = Jan). Earlier months are complete; this one is month to date. */
+export const CUR = NOW.cur;
+/** January to this month. */
+export const MONTHS = NOW.months;
+export const DAYS_IN_MONTH = NOW.daysInMonth;
+export const DAYS_ELAPSED = NOW.day;
 
-export const TODAY = "13 Nov 2026";
-export const DAYS_ELAPSED = 13;
-export const DAYS_IN_MONTH = 30;
-export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov"];
-/** Jan–Oct come from the database (DA1). Nov is month-to-date and still sample. */
-export const NOV = 10;
-
-/** target is November pro-rated to the days so far (the dashboard compares against it); monthTarget is the whole month, as in the coverage file. */
+/** target is this month's target pro-rated to the days with sales so far (the dashboard compares against it); monthTarget is the whole month, as in the coverage file. */
 export type MonthStat = { rl: number; active: number; erc: number; target: number; monthTarget: number; sales: number; collected: number };
 export type Salesman = { code: string; name: string; area: string; stats: MonthStat[] };
 
 export type SalesmanRow = { code: string; name: string; area: string | null };
 export type MonthlyRow = { salesman_code: string; month: number; rl_acct: number | null; active_acct: number | null; erc: number | null; sales_target: number | null; net_sales: number | null };
 
-export function buildSalesmen(rows: SalesmanRow[], monthly: MonthlyRow[], day: number = DAYS_ELAPSED): Salesman[] {
+export function buildSalesmen(rows: SalesmanRow[], monthly: MonthlyRow[], day: number = DAYS_ELAPSED, p: ReturnType<typeof periodOf> = NOW): Salesman[] {
   return rows.map((s) => {
-    const rnd = rng(hash(s.code));
     const mine = new Map(monthly.filter((m) => m.salesman_code === s.code).map((m) => [m.month, m]));
-    const prorate = day / DAYS_IN_MONTH;
-    const stats: MonthStat[] = MONTHS.map((_, i) => {
+    const prorate = day / p.daysInMonth;
+    const prev = mine.get(p.cur);   // last month (month numbers start at 1), standing in for this month's target until the report has one
+    const stats: MonthStat[] = p.months.map((_, i) => {
       const m = mine.get(i + 1);
-      const oct = mine.get(10);
-      if (i < NOV || m) {
-        // A real month. November is month to date, so its target is the month's target pro-rated to the days so far
-        // (October's target stands in when November has none).
-        const sales = Number(m?.net_sales ?? 0);
-        let target = Number(m?.sales_target ?? 0);
-        const monthTarget = i === NOV ? Math.round(target || Number(oct?.sales_target ?? 0)) : target;
-        if (i === NOV) target = Math.round(monthTarget * prorate);
-        return { rl: m?.rl_acct ?? 0, active: m?.active_acct ?? 0, erc: Number(m?.erc ?? 0), target, monthTarget, sales, collected: 0 };
-      }
-      const sales = Math.round(Number(oct?.net_sales ?? 0) * prorate * (0.8 + rnd() * 0.4));
-      const rl = oct?.rl_acct ?? 0;
-      const active = Math.round((oct?.active_acct ?? 0) * (0.55 + rnd() * 0.3));
-      return { rl, active, erc: rl ? Math.round((active / rl) * 10000) / 100 : 0, target: Math.round(Number(oct?.sales_target ?? 0) * prorate), monthTarget: Math.round(Number(oct?.sales_target ?? 0)), sales, collected: 0 };
+      if (i < p.cur) return { rl: m?.rl_acct ?? 0, active: m?.active_acct ?? 0, erc: Number(m?.erc ?? 0), target: Number(m?.sales_target ?? 0), monthTarget: Number(m?.sales_target ?? 0), sales: Number(m?.net_sales ?? 0), collected: 0 };
+      // This month is month to date: its target is pro-rated to the days so far. With no report row yet, sales are 0
+      // (never made up) and last month's target and RL Acct stand in.
+      const monthTarget = Math.round(Number(m?.sales_target ?? 0) || Number(prev?.sales_target ?? 0));
+      return { rl: m?.rl_acct ?? prev?.rl_acct ?? 0, active: m?.active_acct ?? 0, erc: Number(m?.erc ?? 0), target: Math.round(monthTarget * prorate), monthTarget, sales: Number(m?.net_sales ?? 0), collected: 0 };
     });
     return { code: s.code, name: s.name, area: s.area ?? "", stats };
   });
@@ -63,10 +48,11 @@ export const sumStats = (list: Salesman[], mi: number): MonthStat => {
 };
 
 export type DailyRow = { sale_date: string; net: number | string; invoices: number | string };
-/** Daily November chart from the invoice lines. The target line is the target to date spread evenly over the days so far. */
-export function buildDaily(rows: DailyRow[], targetToDate: number, day: number) {
+/** This month's daily chart from the invoice lines. The target line is the target to date spread evenly over the days so far. */
+export function buildDaily(rows: DailyRow[], targetToDate: number, day: number, p: ReturnType<typeof periodOf> = NOW) {
   const per = day ? targetToDate / day : 0;
-  return rows.map((r) => ({ day: `${Number(r.sale_date.slice(8, 10))} Nov`, sales: Math.round(Number(r.net)), target: Math.round(per) }));
+  const ym = `${p.year}-${String(p.cur + 1).padStart(2, "0")}`;
+  return rows.filter((r) => r.sale_date.startsWith(ym)).map((r) => ({ day: `${Number(r.sale_date.slice(8, 10))} ${MONTH_NAMES[p.cur]}`, sales: Math.round(Number(r.net)), target: Math.round(per) }));
 }
 
 export const buckets = ["Current", "1–30", "31–60", "61–90", "90+"] as const;

@@ -7,7 +7,7 @@ import { useRole } from "@/components/role";
 import { useData } from "@/components/data";
 import { Badge, Card, Kpi, PageHeader, RoadBar } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
-import { buildDaily, fmt, MONTHS, NOV, pct, rm, rmK, sumStats, type DailyRow } from "@/lib/mock";
+import { buildDaily, CUR, fmt, MONTHS, pct, rm, rmK, sumStats, YEAR, type DailyRow } from "@/lib/mock";
 import { useDelivery } from "@/lib/delivery/store";
 
 const PANELS = ["Sales vs target", "Coverage (RL / Active / ERC)", "Collection", "Deliveries", "Claims"];
@@ -18,7 +18,7 @@ export default function Dashboard() {
   const [dailyRows, setDailyRows] = useState<DailyRow[]>([]);
   // Deliveries come from the delivery tracking (only for people who may see Logistics).
   const { jobs } = useDelivery(false, !filterSalesman && can("page_logistics"));
-  const [mi, setMi] = useState(NOV);
+  const [mi, setMi] = useState(CUR);
   const [pickSm, setPickSm] = useState("all");
   const sel = filterSalesman ?? (pickSm === "all" ? null : pickSm);
   useEffect(() => {
@@ -31,7 +31,7 @@ export default function Dashboard() {
   const label = (s: { name: string; code: string }) => (dupNames.has(s.name) ? `${s.name} (${s.code.slice(-5)})` : s.name);
   const first = list[0];
   const st = sumStats(list, mi);
-  const isNov = mi === NOV;
+  const isNow = mi === CUR;
   const custs = sel ? customers.filter((c) => c.salesman === sel) : customers;
   const late90 = custs.filter((c) => c.aging[4] > 0).sort((a, b) => b.aging[4] - a.aging[4]);
   const overdue90 = custs.reduce((s, c) => s + c.aging[4], 0);
@@ -52,11 +52,11 @@ export default function Dashboard() {
   const del = { toPick: jn("Invoiced"), toLoad: jn("Picked"), out: jn("Loaded"), pod: jn("Delivered"), f: jn("Failed") };
   const myClaims = sel ? claims.filter((c) => c.salesman === (first?.name ?? "")) : claims;
   const pendingClaims = myClaims.filter((c) => c.status === "Pending supervisor");
-  const daily = buildDaily(dailyRows, sumStats(list, NOV).target, mtdDay);
+  const daily = buildDaily(dailyRows, sumStats(list, CUR).target, mtdDay);
   const salesPct = pct(st.sales, st.target);
   const showLogistics = !filterSalesman && can("page_logistics");
-  // Jan–Oct only: Nov is a part-month and would look like a false collapse.
-  const trend = MONTHS.slice(0, NOV).map((m, i) => { const t = sumStats(list, i); return { month: m, sales: t.sales, target: t.target }; });
+  // Complete months only: this month is part-done and would look like a false collapse.
+  const trend = MONTHS.slice(0, CUR).map((m, i) => { const t = sumStats(list, i); return { month: m, sales: t.sales, target: t.target }; });
   const bySalesman = list.map((s) => ({ name: label(s), sales: s.stats[mi].sales, target: s.stats[mi].target }));
   const channelMix = useMemo(() => {
     const m = new Map<string, number>();
@@ -80,17 +80,17 @@ export default function Dashboard() {
     ...(waitingColgate.length ? [{ tone: "blue" as const, tag: "Colgate", head: `${plural(waitingColgate.length, "claim is", "claims are")} waiting for Colgate's final approval.`, detail: `${rm(waitingColgate.reduce((s, c) => s + c.amount, 0))} in all.`, href: "/claims" }] : []),
     ...(showLogistics && (toDeliver > 0 || del.f > 0 || del.pod > 0) ? [{ tone: "amber" as const, tag: "Delivery", head: `${plural(toDeliver, "invoice", "invoices")} still to deliver.`, detail: `${plural(del.f, "failed delivery", "failed deliveries")} to reschedule, ${plural(del.pod, "POD", "PODs")} missing.`, href: "/logistics" }] : []),
   ];
-  const monthLabel = isNov ? `Nov 2026 MTD (1–${mtdDay} Nov)` : `${MONTHS[mi]} 2026`;
+  const monthLabel = isNow ? (mtdDay ? `${MONTHS[CUR]} ${YEAR} MTD (1–${mtdDay} ${MONTHS[CUR]})` : `${MONTHS[CUR]} ${YEAR}: no sales loaded for this month yet`) : `${MONTHS[mi]} ${YEAR}`;
 
   return (
     <>
       <PageHeader
         title={filterSalesman ? `My dashboard · ${(first?.name ?? "")}` : "Company dashboard"}
-        sub={isNov ? `${monthLabel}. Targets are pro-rated to the days so far.` : `${monthLabel}, from your coverage and net sales report.`}
+        sub={isNow ? `${monthLabel}. Targets are pro-rated to the days so far.` : `${monthLabel}, from your coverage and net sales report.`}
         right={
           <div className="flex flex-wrap gap-2">
             <select className={sel2} value={mi} onChange={(e) => setMi(Number(e.target.value))} aria-label="Month">
-              {MONTHS.map((m, i) => <option key={m} value={i}>{i === NOV ? "Nov (MTD)" : `${m} 2026`}</option>)}
+              {MONTHS.map((m, i) => <option key={m} value={i}>{i === CUR ? `${m} (MTD)` : `${m} ${YEAR}`}</option>)}
             </select>
             {!filterSalesman && (
               <select className={sel2} value={pickSm} onChange={(e) => setPickSm(e.target.value)} aria-label="Salesman">
@@ -123,12 +123,12 @@ export default function Dashboard() {
       <section className="grid overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:grid-cols-5">
         <div className="flex flex-col justify-between border-b border-slate-200 p-5 sm:p-6 lg:col-span-2 lg:border-b-0 lg:border-r">
           <div>
-            <div className="text-sm font-medium text-slate-500">{isNov ? "Net sales so far this month" : `Net sales in ${MONTHS[mi]}`}</div>
+            <div className="text-sm font-medium text-slate-500">{isNow ? "Net sales so far this month" : `Net sales in ${MONTHS[mi]}`}</div>
             <div className="mt-1 font-display text-[60px] font-semibold leading-none tracking-tight text-slate-900 sm:text-[72px]">{rmK(st.sales)}</div>
           </div>
           <div className="mt-4">
             <div className="flex items-baseline justify-between text-sm">
-              <span className={`font-semibold ${salesPct >= 100 ? "text-emerald-700" : salesPct >= 85 ? "text-amber-700" : "text-rose-700"}`}>{salesPct}% of {isNov ? "target to date" : "target"}</span>
+              <span className={`font-semibold ${salesPct >= 100 ? "text-emerald-700" : salesPct >= 85 ? "text-amber-700" : "text-rose-700"}`}>{salesPct}% of {isNow ? "target to date" : "target"}</span>
               <span className="tabular-nums text-slate-500">Target {rmK(st.target)}</span>
             </div>
             <RoadBar pct={salesPct} className="mt-2" />
@@ -146,16 +146,16 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <Section title="Sales" sub={isNov ? "How the month is going against target, and where sales come from." : `How ${MONTHS[mi]} went against target.`} />
+      <Section title="Sales" sub={isNow ? "How the month is going against target, and where sales come from." : `How ${MONTHS[mi]} went against target.`} />
       <div className="grid gap-5 lg:grid-cols-5">
-        {isNov
+        {isNow
           ? <Card title="Sales against target pace" className="lg:col-span-3"><CumulativeSales data={daily} /></Card>
-          : <Card title="Monthly net sales against target (Jan–Oct)" className="lg:col-span-3"><MonthlyTrend data={trend} /></Card>}
-        <Card title={`Achievement by salesman · ${isNov ? "to date" : MONTHS[mi]}`} className="lg:col-span-2"><Achievement data={bySalesman} /></Card>
+          : <Card title={CUR ? `Monthly net sales against target (Jan–${MONTHS[CUR - 1]})` : "Monthly net sales against target"} className="lg:col-span-3"><MonthlyTrend data={trend} /></Card>}
+        <Card title={`Achievement by salesman · ${isNow ? "to date" : MONTHS[mi]}`} className="lg:col-span-2"><Achievement data={bySalesman} /></Card>
       </div>
       <div className="mt-5 grid gap-5 lg:grid-cols-5">
-        {isNov && <Card title="Monthly net sales against target (Jan–Oct)" className="lg:col-span-3"><MonthlyTrend data={trend} /></Card>}
-        <Card title="Sales mix by channel · this year" className={isNov ? "lg:col-span-2" : "lg:col-span-5"} right={<span className="text-xs text-slate-500">Share of net sales</span>}><ChannelMix data={channelMix} /></Card>
+        {isNow && <Card title={CUR ? `Monthly net sales against target (Jan–${MONTHS[CUR - 1]})` : "Monthly net sales against target"} className="lg:col-span-3"><MonthlyTrend data={trend} /></Card>}
+        <Card title="Sales mix by channel · this year" className={isNow ? "lg:col-span-2" : "lg:col-span-5"} right={<span className="text-xs text-slate-500">Share of net sales</span>}><ChannelMix data={channelMix} /></Card>
       </div>
 
       <Section title="Money owed to us" sub={`From the aging report${asAt ? ` as at ${asAt.slice(8)}/${asAt.slice(5, 7)}/${asAt.slice(0, 4)}` : ""}.`} right={<Link href="/followup" className="text-sm font-medium text-indigo-700 hover:underline">Collection follow-up</Link>} />

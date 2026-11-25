@@ -5,18 +5,18 @@ import { useRole } from "@/components/role";
 import { useData } from "@/components/data";
 import { Badge, Card, PageHeader, Td, Th } from "@/components/ui";
 import { SalesPerformance } from "@/components/SalesPerformance";
-import { MONTHS, NOV, rm, sumStats } from "@/lib/mock";
+import { CUR, MONTHS, rm, sumStats, YEAR } from "@/lib/mock";
 
 export default function Sales() {
   const { filterSalesman } = useRole();
   const { salesmen } = useData();
-  const [mi, setMi] = useState(NOV - 1);
+  const [mi, setMi] = useState(Math.max(0, CUR - 1));
   const list = filterSalesman ? salesmen.filter((s) => s.code === filterSalesman) : salesmen;
   const chart = list.map((s) => ({ name: s.name.split(" ")[0], "RL Acct": s.stats[mi].rl, "Active Acct": s.stats[mi].active }));
   return (
     <>
-      <PageHeader title="Sales & KPI" sub="Sales achievement against target, and customer coverage (RL Acct / Active Acct / ERC). From your coverage and net sales report, January to November. November is month to date: net sales so far are compared with the full month's target, as in the report."
-        right={<select className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm" value={mi} onChange={(e) => setMi(Number(e.target.value))} aria-label="Month">{MONTHS.map((m, i) => <option key={m} value={i}>{i === NOV ? "Nov (MTD)" : `${m} 2026`}</option>)}</select>} />
+      <PageHeader title="Sales & KPI" sub="Sales achievement against target, and customer coverage (RL Acct / Active Acct / ERC). From your coverage and net sales report, January to this month. This month is month to date: net sales so far are compared with the full month's target, as in the report."
+        right={<select className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm" value={mi} onChange={(e) => setMi(Number(e.target.value))} aria-label="Month">{MONTHS.map((m, i) => <option key={m} value={i}>{i === CUR ? `${m} (MTD)` : `${m} ${YEAR}`}</option>)}</select>} />
       <Card title={`KPI check · ${MONTHS[mi]}`} className="mb-4">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -67,7 +67,7 @@ export default function Sales() {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="border-b border-slate-200">
-              <tr><Th first>Salesman</Th><Th>Measure</Th>{MONTHS.slice(0, NOV).map((m) => <Th key={m} right>{m}</Th>)}</tr>
+              <tr><Th first>Salesman</Th><Th>Measure</Th>{MONTHS.slice(0, CUR).map((m) => <Th key={m} right>{m}</Th>)}</tr>
             </thead>
             <tbody>
               {list.flatMap((s) => [
@@ -78,7 +78,7 @@ export default function Sales() {
                 <tr key={s.code + row.k} className={`border-b border-slate-100 ${ri === 2 ? "border-slate-200" : ""}`}>
                   <Td first>{ri === 0 ? <><b>{s.name}</b> <span className="text-xs text-slate-400">{s.code}</span></> : ""}</Td>
                   <Td>{row.k}</Td>
-                  {MONTHS.slice(0, NOV).map((_, i) => (
+                  {MONTHS.slice(0, CUR).map((_, i) => (
                     <Td key={i} right>{row.k === "ERC (%)" ? <Badge tone={s.stats[i].erc >= 70 ? "green" : s.stats[i].erc >= 50 ? "amber" : "red"}>{row.f(i)}</Badge> : row.f(i)}</Td>
                   ))}
                 </tr>

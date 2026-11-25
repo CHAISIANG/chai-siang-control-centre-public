@@ -1,3 +1,4 @@
+import { CUR, MONTH_NAMES } from "./mock";
 // Reads the four weekly Excel reports (aging, coverage and net sales, sales by product and rep, net sales by customer).
 // Pure code: it takes the rows of a sheet and returns tidy data plus checks that the reports agree with each other.
 export type Row = unknown[];
@@ -189,15 +190,15 @@ export function crossChecks(d: { aging?: Aging; coverage?: Coverage; products?: 
     out.push({ ok: close(withLeftOut, filed), title: "Aging adds up", detail: `The ${aging.invoices.length.toLocaleString()} open invoices total ${rm(aging.sum)}${aging.leftOut.count ? `, and the ${aging.leftOut.count} PV, OR and TOR lines left out total ${rm(aging.leftOut.total)}, together ${rm(withLeftOut)}` : ""}. The report's own totals (grand total plus ${aging.fileSideTotals.map((t) => t.label).join(", ") || "no separate groups"}) give ${rm(filed)}.` });
   }
   if (products && coverage?.total) {
-    const nov = coverage.total.sales[10] ?? 0;
-    out.push({ ok: close(products.net, nov), title: "Product sales match November net sales", detail: `Sales by product add up to ${rm(products.net)}. The coverage report shows ${rm(nov)} for November.` });
+    const nov = coverage.total.sales[CUR] ?? 0;
+    out.push({ ok: close(products.net, nov), title: `Product sales match ${MONTH_NAMES[CUR]} net sales`, detail: `Sales by product add up to ${rm(products.net)}. The coverage report shows ${rm(nov)} for ${MONTH_NAMES[CUR]}.` });
   }
   if (products && products.fileNet !== undefined) out.push({ ok: close(products.net, products.fileNet), title: "Product report adds up", detail: `The lines add up to ${rm(products.net)}; the report's grand total says ${rm(products.fileNet)}.` });
   if (customers && coverage?.total) {
     const cov = coverage.total.ytd.sales ?? 0;
     out.push({ ok: close(customers.sum, cov), title: "Customer sales match the year to date", detail: `Customers add up to ${rm(customers.sum)} for the year. The coverage report shows ${rm(cov)}.` });
-    const bad = coverage.total.sales.map((s, i) => ({ m: i, a: s, b: customers.fileMonthTotals[i] ?? 0 })).filter((x, i) => i < 11 && !close(x.a, x.b, 1));
-    out.push({ ok: bad.length === 0, title: "Every month matches between the two sales reports", detail: bad.length === 0 ? "January to November agree." : `${bad.length} month(s) differ: ${bad.map((b) => `month ${b.m + 1}: ${rm(b.a)} vs ${rm(b.b)}`).join("; ")}.` });
+    const bad = coverage.total.sales.map((s, i) => ({ m: i, a: s, b: customers.fileMonthTotals[i] ?? 0 })).filter((x, i) => i <= CUR && !close(x.a, x.b, 1));
+    out.push({ ok: bad.length === 0, title: "Every month matches between the two sales reports", detail: bad.length === 0 ? `January to ${MONTH_NAMES[CUR]} agree.` : `${bad.length} month(s) differ: ${bad.map((b) => `month ${b.m + 1}: ${rm(b.a)} vs ${rm(b.b)}`).join("; ")}.` });
   }
   if (aging && customers) {
     const known = new Set(customers.customers.map((c) => c.code));

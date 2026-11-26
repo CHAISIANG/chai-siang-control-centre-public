@@ -1,14 +1,16 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Download, FileSpreadsheet, Pencil, Plus, X } from "lucide-react";
-import { readSheet } from "read-excel-file/browser";
+import readXlsxFile, { readSheet } from "read-excel-file/browser";
 import { Badge, Card, Kpi, KpiStrip, PageHeader, Td, Th } from "@/components/ui";
 import { useRole } from "@/components/role";
 import { supabase } from "@/lib/supabase";
+import { SAMPLE_CUSTOMERS, SAMPLE_SAVED, SAMPLE_SOLD, SAMPLE_SUPPLIERS, useMasterSample } from "@/lib/masterSample";
 
-// Master data: one clean record per item, customer group and supplier. Every PO, invoice, stock record and claim will use these codes.
+// Master data: one clean record per product, customer group and principal/supplier. Every PO, invoice, stock record, claim and
+// principal report uses these codes. Each product belongs to one principal, so reports and logins can be split by principal.
 
-type Saved = { code: string; description: string | null; barcode: string | null; category: string | null; brand: string | null; pack_size: string | null; pcs_per_carton: number | null; carton_price: number | null; batch_tracked: boolean; shelf_life_days: number | null; active: boolean };
+type Saved = { code: string; description: string | null; barcode: string | null; category: string | null; brand: string | null; pack_size: string | null; pcs_per_carton: number | null; carton_price: number | null; batch_tracked: boolean; shelf_life_days: number | null; active: boolean; principal_code?: string | null; product_group?: string | null };
 type Sold = { code: string; desc: string; cartons: number; net: number };
 type Cust = { code: string; name: string; channel: string | null; route_name: string | null; salesman_code: string | null };
 type Group = { customer_code: string; class: string | null; group_name: string | null; region: string | null };
@@ -19,11 +21,12 @@ const num = (n: number) => n.toLocaleString("en-MY");
 
 // A first guess from the product name, only to save typing. It stays a suggestion until someone confirms it.
 const GUESS: [RegExp, string][] = [
-  [/TOOTHPASTE|T\/PASTE|\bPASTE\b/i, "Toothpaste"],
-  [/BRUSH/i, "Toothbrush"],
+  // home care first: dish paste (Axion) and dish liquid (Glo) are not toothpaste
+  [/AXION|\bGLO\b|DISH|FLOOR|SOFTLAN|AJAX|FABRIC|CLEANER|LAUNDRY/i, "Home care"],
+  [/BRUSH|\bCTB/i, "Toothbrush"],
+  [/TOOTHPASTE|T\/PASTE|\bPASTE\b|\bCDC\b|COL(GATE)?\b.*\d+\s?G\b/i, "Toothpaste"],
   [/MOUTHWASH|PLAX|RINSE/i, "Mouthwash"],
   [/SOAP|SHOWER|SHAMPOO|BODY WASH|HAND WASH|PROTEX|PALMOLIVE/i, "Personal care"],
-  [/DISH|FLOOR|SOFTLAN|AJAX|FABRIC|CLEANER|LAUNDRY/i, "Home care"],
 ];
 const guessCategory = (d: string) => GUESS.find(([re]) => re.test(d))?.[1] ?? "";
 const guessBrand = (d: string) => (d.trim().split(/\s+/)[0] ?? "").toUpperCase();
@@ -67,7 +70,10 @@ type Preview = { kind: "items" | "customers" | "suppliers"; rows: object[]; conf
 
 export default function MasterData() {
   const { can } = useRole();
-  const manage = can("master_manage");
+  const sample = useMasterSample();
+  const manage = can("master_manage") || sample;
+  const [principal, setPrincipal] = useState("");   // "" all, "none" without a principal, or a principal code
+  const [bulkTo, setBulkTo] = useState("");
   const [tab, setTab] = useState<Tab>("items");
   const [sold, setSold] = useState<Sold[]>([]);
   const [saved, setSaved] = useState<Saved[]>([]);
@@ -83,9 +89,19 @@ export default function MasterData() {
   const [editSup, setEditSup] = useState<Supplier | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const mssRef = useRef<HTMLInputElement>(null);
   const [uploadKind, setUploadKind] = useState<Preview["kind"]>("items");
 
+  const inited = useRef(false);
   const load = useCallback(async () => {
+    if (sample) {
+      // the preview: made-up data, and later saves stay in the browser (see persist below)
+      if (inited.current) return;
+      inited.current = true;
+      setSold(SAMPLE_SOLD); setSaved(SAMPLE_SAVED); setCusts(SAMPLE_CUSTOMERS); setGroups([]); setSuppliers(SAMPLE_SUPPLIERS);
+      setLoading(false);
+      return;
+    }
     const [lines, cs, sv, gr, su] = await Promise.all([
       pageAll<{ product_code: string; product_desc: string | null; qty_cs: number | null; net: number | null }>("sales_lines", "product_code, product_desc, qty_cs, net", "id"),
       pageAll<Cust>("customers", "code, name, channel, route_name, salesman_code", "code"),
@@ -103,7 +119,7 @@ export default function MasterData() {
     setSold([...m.values()].sort((a, b) => b.net - a.net));
     setCusts(cs); setSaved(sv); setGroups(gr); setSuppliers(su);
     setLoading(false);
-  }, []);
+  }, [sample]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
 
@@ -117,14 +133,22 @@ export default function MasterData() {
     return [...codes].map((code) => {
       const s = soldBy.get(code), v = savedBy.get(code);
       const desc = v?.description || s?.desc || "";
-      return { code, desc, cartons: s?.cartons ?? 0, net: s?.net ?? 0, saved: v, category: v?.category ?? "", guess: guessCategory(desc), brand: v?.brand || guessBrand(desc) };
+      return { code, desc, cartons: s?.cartons ?? 0, net: s?.net ?? 0, saved: v, category: v?.category ?? "", guess: guessCategory(desc), brand: v?.brand || guessBrand(desc), principal: v?.principal_code ?? "", group: v?.product_group ?? "" };
     }).sort((a, b) => b.net - a.net || a.code.localeCompare(b.code));
   }, [sold, saved, savedBy]);
 
   const confirmed = items.filter((i) => i.category).length;
   const guessedOnly = items.filter((i) => !i.category && i.guess);
   const detailed = items.filter((i) => i.saved?.barcode && i.saved.pcs_per_carton).length;
-  const rows = useMemo(() => { const k = q.trim().toLowerCase(); return k ? items.filter((i) => i.code.toLowerCase().includes(k) || i.desc.toLowerCase().includes(k)) : items; }, [items, q]);
+  const noPrincipal = items.filter((i) => !i.principal);
+  const complete = items.filter((i) => i.principal && i.saved?.pack_size && i.saved?.pcs_per_carton && i.saved?.carton_price != null).length;
+  const supplierName = useMemo(() => { const m = new Map(suppliers.map((x) => [x.code, x.name])); return (c: string) => m.get(c) ?? c; }, [suppliers]);
+  const groupNames = useMemo(() => [...new Set(saved.map((x) => x.product_group).filter((g): g is string => !!g))].sort(), [saved]);
+  const rows = useMemo(() => {
+    const k = q.trim().toLowerCase();
+    return items.filter((i) => (!principal || (principal === "none" ? !i.principal : i.principal === principal))
+      && (!k || i.code.toLowerCase().includes(k) || i.desc.toLowerCase().includes(k) || i.group.toLowerCase().includes(k)));
+  }, [items, q, principal]);
   const custRows = useMemo(() => { const k = q.trim().toLowerCase(); return k ? custs.filter((c) => c.code.toLowerCase().includes(k) || c.name.toLowerCase().includes(k) || (c.channel ?? "").toLowerCase().includes(k)) : custs; }, [custs, q]);
   const channels = useMemo(() => {
     const m = new Map<string, number>();
@@ -134,6 +158,15 @@ export default function MasterData() {
 
   const fail = (e: unknown) => setMsg({ ok: false, text: e instanceof Error ? e.message : (e as { message?: string })?.message ?? "Could not save." });
 
+  /** Save rows to a master table and show the result. The preview keeps them in this browser only. */
+  async function persist(table: string, rowsToSave: object[], conflict: string) {
+    if (!sample) { await upsertAll(table, rowsToSave, conflict); await load(); return; }
+    const merge = <T,>(old: T[], key: (x: T) => string) => { const m = new Map(old.map((x) => [key(x), x])); for (const r of rowsToSave as T[]) m.set(key(r), { ...(m.get(key(r)) ?? {}), ...r } as T); return [...m.values()]; };
+    if (table === "item_master") setSaved((o) => merge(o, (x) => x.code));
+    else if (table === "customer_groups") setGroups((o) => merge(o, (x) => x.customer_code));
+    else if (table === "suppliers") setSuppliers((o) => merge(o, (x) => x.code));
+  }
+
   // ---------- items ----------
   const blankItem = (code: string, description: string): Saved => ({ code, description, barcode: null, category: null, brand: null, pack_size: null, pcs_per_carton: null, carton_price: null, batch_tracked: true, shelf_life_days: null, active: true });
 
@@ -141,9 +174,20 @@ export default function MasterData() {
     setBusy(true); setMsg(null);
     try {
       const rowsToSave = guessedOnly.map((i) => ({ ...(i.saved ?? blankItem(i.code, i.desc)), description: i.desc, category: i.guess, brand: i.saved?.brand || i.brand }));
-      await upsertAll("item_master", rowsToSave, "code");
-      await load();
+      await persist("item_master", rowsToSave, "code");
       setMsg({ ok: true, text: `${rowsToSave.length} categories confirmed and saved.` });
+    } catch (e) { fail(e); }
+    setBusy(false);
+  }
+
+  /** Products that have no principal yet (mostly found in the sales reports) all go to the principal chosen. */
+  async function setPrincipalForMissing() {
+    if (!bulkTo || !noPrincipal.length) return;
+    setBusy(true); setMsg(null);
+    try {
+      const rowsToSave = noPrincipal.map((i) => ({ ...(i.saved ?? blankItem(i.code, i.desc)), description: i.saved?.description || i.desc, category: i.saved?.category || i.guess || null, brand: i.saved?.brand || i.brand || null, principal_code: bulkTo }));
+      await persist("item_master", rowsToSave, "code");
+      setMsg({ ok: true, text: `${rowsToSave.length} products now belong to ${supplierName(bulkTo)}.` });
     } catch (e) { fail(e); }
     setBusy(false);
   }
@@ -152,10 +196,11 @@ export default function MasterData() {
     if (!edit) return;
     setBusy(true); setMsg(null);
     try {
-      const row = { ...edit, barcode: nz(edit.barcode), category: nz(edit.category), brand: nz(edit.brand), pack_size: nz(edit.pack_size), description: nz(edit.description) };
-      const { error } = await supabase.from("item_master").upsert(row, { onConflict: "code" });
-      if (error) throw error;
-      await load(); setEdit(null); setMsg({ ok: true, text: `${row.code} saved.` });
+      const row = { ...edit, barcode: nz(edit.barcode), category: nz(edit.category), brand: nz(edit.brand), pack_size: nz(edit.pack_size), description: nz(edit.description), principal_code: nz(edit.principal_code), product_group: nz(edit.product_group) };
+      const twin = row.barcode ? saved.find((x) => x.barcode === row.barcode && x.code !== row.code) : undefined;
+      if (twin) throw new Error(`Barcode ${row.barcode} is already used by ${twin.code}. Each product needs its own barcode.`);
+      await persist("item_master", [row], "code");
+      setEdit(null); setMsg({ ok: true, text: `${row.code} saved.` });
     } catch (e) { fail(e); }
     setBusy(false);
   }
@@ -165,8 +210,7 @@ export default function MasterData() {
     setMsg(null);
     const cur = groupBy.get(code) ?? { customer_code: code, class: null, group_name: null, region: null };
     const row = { ...cur, ...patch };
-    const { error } = await supabase.from("customer_groups").upsert(row, { onConflict: "customer_code" });
-    if (error) { fail(error); return; }
+    if (!sample) { const { error } = await supabase.from("customer_groups").upsert(row, { onConflict: "customer_code" }); if (error) { fail(error); return; } }
     setGroups((p) => [...p.filter((g) => g.customer_code !== code), row]);
   }
 
@@ -175,11 +219,10 @@ export default function MasterData() {
     if (!editSup) return;
     setBusy(true); setMsg(null);
     try {
-      if (!editSup.code.trim() || !editSup.name.trim()) throw new Error("Supplier code and name are required.");
+      if (!editSup.code.trim() || !editSup.name.trim()) throw new Error("Code and name are required.");
       const row = { ...editSup, code: editSup.code.trim(), name: editSup.name.trim(), payment_terms: nz(editSup.payment_terms), contact_person: nz(editSup.contact_person), email: nz(editSup.email), claims_email: nz(editSup.claims_email) };
-      const { error } = await supabase.from("suppliers").upsert(row, { onConflict: "code" });
-      if (error) throw error;
-      await load(); setEditSup(null); setMsg({ ok: true, text: `${row.name} saved.` });
+      await persist("suppliers", [row], "code");
+      setEditSup(null); setMsg({ ok: true, text: `${row.name} saved.` });
     } catch (e) { fail(e); }
     setBusy(false);
   }
@@ -189,10 +232,10 @@ export default function MasterData() {
     setBusy(true);
     const { default: writeExcelFile } = await import("write-excel-file/browser");
     await writeExcelFile([
-      { sheet: "Item master", columns: [{ width: 16 }, { width: 40 }, { width: 16 }, { width: 16 }, { width: 14 }, { width: 14 }, { width: 18 }, { width: 14 }, { width: 18 }, { width: 14 }],
+      { sheet: "Products", columns: [{ width: 16 }, { width: 40 }, { width: 16 }, { width: 28 }, { width: 16 }, { width: 16 }, { width: 14 }, { width: 14 }, { width: 18 }, { width: 14 }, { width: 18 }, { width: 14 }],
         data: [
-          [head("Item code"), head("Description"), todo("Barcode"), todo("Category"), todo("Brand"), todo("Pack size"), todo("Pieces per carton"), todo("Carton price (RM)"), todo("Batch tracked (Y/N)"), todo("Shelf life (days)")],
-          ...items.map((i) => [{ value: i.code }, { value: i.desc }, { value: i.saved?.barcode ?? "" }, { value: i.category || i.guess }, { value: i.brand }, { value: i.saved?.pack_size ?? "" }, { value: i.saved?.pcs_per_carton ?? "" }, { value: i.saved?.carton_price ?? "" }, { value: i.saved ? (i.saved.batch_tracked ? "Y" : "N") : "Y" }, { value: i.saved?.shelf_life_days ?? "" }]),
+          [head("Item code"), head("Description"), todo("Principal code"), todo("Product group"), todo("Barcode"), todo("Category"), todo("Brand"), todo("Pack size"), todo("Pieces per carton"), todo("Carton price (RM)"), todo("Batch tracked (Y/N)"), todo("Shelf life (days)")],
+          ...items.map((i) => [{ value: i.code }, { value: i.desc }, { value: i.principal }, { value: i.group }, { value: i.saved?.barcode ?? "" }, { value: i.category || i.guess }, { value: i.brand }, { value: i.saved?.pack_size ?? "" }, { value: i.saved?.pcs_per_carton ?? "" }, { value: i.saved?.carton_price ?? "" }, { value: i.saved ? (i.saved.batch_tracked ? "Y" : "N") : "Y" }, { value: i.saved?.shelf_life_days ?? "" }]),
         ] },
       { sheet: "Read me", columns: [{ width: 90 }], data: [
         [head("How to fill this in")],
@@ -200,9 +243,11 @@ export default function MasterData() {
         [{ value: "Yellow headings are for you to fill in. Category and Brand are first guesses from the product name: correct them where wrong." }],
         [{ value: "A blank cell leaves what is already saved as it is. It never clears anything." }],
         [{ value: "Batch tracked: Y if the item has a batch code and expiry date to record in the warehouse." }],
+        [{ value: `Principal code: the code of the principal on the Principals tab (${suppliers.map((x) => x.code).join(", ") || "add the principal first"}).` }],
+        [{ value: "Product group: products that count as one in MSS or focus brand reports, for example the MP and normal pack of the same item." }],
         [{ value: "Save the file, then use Upload filled template on the Master data page. You see a check before anything is saved." }],
       ] },
-    ]).toFile("item-master-template.xlsx");
+    ]).toFile("products-template.xlsx");
     setBusy(false);
   }
   async function customerTemplate() {
@@ -230,6 +275,47 @@ export default function MasterData() {
     setBusy(false);
   }
 
+  // ---------- product groups from the MSS file ----------
+  /** The MSS file's "Full list" sheets say which product codes count as one SKU (column "SKU" = code, "MSS NPG" = group).
+   *  Products get that group; the check before saving shows what changes, and nothing is saved until confirmed. */
+  async function readMss(f: File | undefined) {
+    if (!f) return;
+    setBusy(true); setMsg(null);
+    try {
+      const sheets = (await readXlsxFile(f)).filter((x) => /full\s*list/i.test(x.sheet));
+      const errors: string[] = [], warnings: string[] = [];
+      if (!sheets.length) errors.push("No \"Full list\" sheet was found. Use the MSS file with the 503 and 504 Full list sheets.");
+      const groupOf = new Map<string, string>();
+      for (const sh of sheets) {
+        const rows = sh.data as unknown[][];
+        const hi = rows.findIndex((r) => r.some((c) => cellStr(c).toLowerCase() === "sku") && r.some((c) => cellStr(c).toLowerCase() === "mss npg"));
+        if (hi < 0) { warnings.push(`Sheet "${sh.sheet}": the SKU and MSS NPG columns were not found, so it was skipped.`); continue; }
+        const ci = rows[hi].findIndex((c) => cellStr(c).toLowerCase() === "sku"), gi = rows[hi].findIndex((c) => cellStr(c).toLowerCase() === "mss npg");
+        for (const r of rows.slice(hi + 1)) {
+          const code = cellStr(r[ci]), grp = cellStr(r[gi]).replace(/\s+/g, " ");
+          if (!code || !grp) continue;
+          const was = groupOf.get(code);
+          if (was && was !== grp) warnings.push(`${code} is in two groups ("${was}" and "${grp}"). The first is kept.`);
+          else groupOf.set(code, grp);
+        }
+      }
+      const byCode = new Map(items.map((i) => [i.code, i]));
+      const out: Saved[] = [];
+      let missing = 0;
+      for (const [code, grp] of groupOf) {
+        const i = byCode.get(code);
+        if (!i) { missing++; continue; }
+        if (i.group === grp) continue;
+        out.push({ ...(i.saved ?? blankItem(code, i.desc)), description: i.saved?.description || i.desc, product_group: grp });
+      }
+      if (missing) warnings.push(`${missing} codes in the MSS file are not in your products (not sold in the sales reports yet). They were left out.`);
+      if (groupOf.size && !out.length && !errors.length) warnings.push("Every product already has the group the MSS file gives it.");
+      setPreview({ kind: "items", rows: out, conflict: "code", table: "item_master", errors, warnings: warnings.slice(0, 8), file: f.name });
+    } catch (e) { fail(e); }
+    if (mssRef.current) mssRef.current.value = "";
+    setBusy(false);
+  }
+
   // ---------- upload with a check before saving ----------
   function startUpload(kind: Preview["kind"]) { setUploadKind(kind); setMsg(null); fileRef.current?.click(); }
 
@@ -254,6 +340,9 @@ export default function MasterData() {
           set("description", cellStr(pick(r, "description")));
           const bc = cellStr(pick(r, "barcode")); set("barcode", bc);
           set("category", cellStr(pick(r, "category"))); set("brand", cellStr(pick(r, "brand"))); set("pack_size", cellStr(pick(r, "pack size")));
+          const pc = cellStr(pick(r, "principal code", "principal"));
+          if (pc && !suppliers.some((x) => x.code === pc)) errors.push(`Row ${line} (${code}): principal code ${pc} is not on the Principals tab. Add the principal first.`);
+          set("principal_code", pc); set("product_group", cellStr(pick(r, "product group")));
           for (const [k, names, int] of [["pcs_per_carton", ["pieces per carton"], true], ["carton_price", ["carton price (rm)", "carton price"], false], ["shelf_life_days", ["shelf life (days)", "shelf life"], true]] as const) {
             const v = toNum(pick(r, ...names));
             if (v === null) continue;
@@ -267,7 +356,8 @@ export default function MasterData() {
             if (owner && owner !== code) errors.push(`Row ${line} (${code}): barcode ${next.barcode} is already used by ${owner}.`);
             seen.set(next.barcode, code);
           }
-          if (!items.some((x) => x.code === code)) warnings.push(`${code} is not in your sales reports yet. It will be added as a new item.`);
+          if (!items.some((x) => x.code === code)) warnings.push(`${code} is not in your sales reports yet. It will be added as a new product.`);
+          if (!next.principal_code) warnings.push(`${code} has no principal yet.`);
           out.push(next);
         });
       } else if (uploadKind === "customers") {
@@ -305,8 +395,7 @@ export default function MasterData() {
     if (!preview || preview.errors.length) return;
     setBusy(true); setMsg(null);
     try {
-      await upsertAll(preview.table, preview.rows, preview.conflict);
-      await load();
+      await persist(preview.table, preview.rows, preview.conflict);
       setMsg({ ok: true, text: `${preview.rows.length} records saved from ${preview.file}.` });
       setPreview(null);
     } catch (e) { fail(e); }
@@ -328,10 +417,12 @@ export default function MasterData() {
 
   return (
     <>
-      <PageHeader title="Master data" sub="One clean list of items, customer groups and suppliers. Every PO, invoice, stock record and claim will use these same codes." />
+      <PageHeader title="Master data" sub="One clean list of products, customer groups and principals. Every PO, invoice, stock record, claim and principal report uses these same codes." />
+      {sample && <p className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">Sample data (made up). Changes stay in this browser.</p>}
       <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => void readFile(e.target.files?.[0])} />
+      <input ref={mssRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => void readMss(e.target.files?.[0])} />
       <div className="mb-4 flex flex-wrap gap-2">
-        {tabBtn("items", "Items")}{tabBtn("customers", "Customer groups")}{tabBtn("suppliers", "Suppliers")}{tabBtn("links", "How records link")}
+        {tabBtn("items", "Products")}{tabBtn("suppliers", "Principals")}{tabBtn("customers", "Customer groups")}{tabBtn("links", "How records link")}
       </div>
       {msg && <p role={msg.ok ? "status" : "alert"} className={`mb-3 rounded px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>{msg.text}</p>}
 
@@ -351,36 +442,54 @@ export default function MasterData() {
       {tab === "items" && (
         <div className="space-y-4">
           <KpiStrip cols="lg:grid-cols-4">
-            <Kpi label="Items" value={loading ? "…" : num(items.length)} sub="From sales reports and added by hand" />
+            <Kpi label="Products" value={loading ? "…" : num(items.length)} sub="Found in your sales reports, plus any added by hand" />
+            <Kpi label="With a principal" value={loading ? "…" : num(items.length - noPrincipal.length)} sub={noPrincipal.length ? `${num(noPrincipal.length)} still without one` : "All set"} tone={noPrincipal.length ? "warn" : "good"} />
             <Kpi label="Category confirmed" value={loading ? "…" : num(confirmed)} sub={`${num(guessedOnly.length)} more guessed, to confirm`} tone={guessedOnly.length ? "warn" : "good"} />
-            <Kpi label="With barcode and carton size" value={loading ? "…" : num(detailed)} sub="Fill in the template" tone={detailed ? "good" : "bad"} />
-            <Kpi label="Without a category" value={loading ? "…" : num(items.length - confirmed - guessedOnly.length)} sub="Need your help" tone="warn" />
+            <Kpi label="Details complete" value={loading ? "…" : num(complete)} sub={`Principal, pack size, pcs per carton and price · ${num(detailed)} with barcode`} tone={complete === items.length && items.length ? "good" : "warn"} />
           </KpiStrip>
-          <Card title="Item master" right={uploadBar("items", itemTemplate)}>
+          {manage && noPrincipal.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <span><b className="font-medium">{num(noPrincipal.length)} products have no principal yet</b>, most of them found in your sales reports.</span>
+              <select aria-label="Principal to give them" value={bulkTo} onChange={(e) => setBulkTo(e.target.value)} className="rounded-md border border-amber-300 bg-white px-2 py-1 text-sm">
+                <option value="">Choose principal…</option>
+                {suppliers.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}
+              </select>
+              <button disabled={busy || !bulkTo} onClick={() => void setPrincipalForMissing()} className={primary}><Check size={15} /> Give all {num(noPrincipal.length)} to this principal</button>
+              {!suppliers.length && <span className="text-xs">Add the principal on the Principals tab first.</span>}
+            </div>
+          )}
+          <Card title="Products" right={uploadBar("items", itemTemplate)}>
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <input value={q} onChange={(e) => { setQ(e.target.value); setShown(50); }} placeholder="Search item code or name" className="w-full max-w-sm rounded-md border border-slate-300 px-3 py-2 text-sm" />
+              <input value={q} onChange={(e) => { setQ(e.target.value); setShown(50); }} placeholder="Search code, name or product group" className="w-full max-w-sm rounded-md border border-slate-300 px-3 py-2 text-sm" />
+              <select aria-label="Principal" value={principal} onChange={(e) => { setPrincipal(e.target.value); setShown(50); }} className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm">
+                <option value="">All principals</option>
+                {suppliers.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}
+                <option value="none">No principal yet</option>
+              </select>
               {manage && guessedOnly.length > 0 && <button disabled={busy} onClick={() => void confirmGuesses()} className={dl}><Check size={15} /> Confirm {guessedOnly.length} guessed categories</button>}
-              {manage && <button onClick={() => setEdit(blankItem("", ""))} className={dl}><Plus size={15} /> Add item</button>}
+              {manage && <button onClick={() => setEdit(blankItem("", ""))} className={dl}><Plus size={15} /> Add product</button>}
+              {manage && <button disabled={busy || loading} onClick={() => mssRef.current?.click()} className={dl} title="Read the MSS file's Full list sheets: codes in the same MSS group count as one SKU"><FileSpreadsheet size={15} /> Product groups from MSS file</button>}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="border-b border-slate-200"><tr><Th first>Item code</Th><Th>Description</Th><Th>Category</Th><Th>Brand</Th><Th right>Cartons sold</Th><Th right>Net sales</Th><Th>Barcode</Th><Th right>Pcs / ctn</Th><Th>Batch</Th>{manage && <Th> </Th>}</tr></thead>
+                <thead className="border-b border-slate-200"><tr><Th first>Item code</Th><Th>Description</Th><Th>Principal</Th><Th>Product group</Th><Th>Category</Th><Th right>Cartons sold</Th><Th right>Net sales</Th><Th>Pack</Th><Th right>Pcs / ctn</Th><Th right>Carton price</Th>{manage && <Th> </Th>}</tr></thead>
                 <tbody>
                   {rows.slice(0, shown).map((i) => (
                     <tr key={i.code} className={`border-b border-slate-100 last:border-0 ${i.saved?.active === false ? "opacity-50" : ""}`}>
                       <Td first><b>{i.code}</b></Td>
                       <Td>{i.desc}</Td>
+                      <Td>{i.principal ? supplierName(i.principal) : <span className="text-amber-700">Not set</span>}</Td>
+                      <Td>{i.group || <span className="text-slate-400">–</span>}</Td>
                       <Td>{i.category ? i.category : i.guess ? <span title="Guessed from the name. Confirm it to save.">{i.guess} <span className="text-xs text-slate-400">(guess)</span></span> : <span className="text-slate-400">Not set</span>}</Td>
-                      <Td><span className="text-slate-500">{i.brand}</span></Td>
                       <Td right>{num(Math.round(i.cartons))}</Td>
                       <Td right>{rm(i.net)}</Td>
-                      <Td>{i.saved?.barcode ?? <span className="text-slate-400">to fill</span>}</Td>
+                      <Td>{i.saved?.pack_size ?? <span className="text-slate-400">to fill</span>}</Td>
                       <Td right>{i.saved?.pcs_per_carton ?? <span className="text-slate-400">to fill</span>}</Td>
-                      <Td>{i.saved ? (i.saved.batch_tracked ? <Badge tone="blue">Tracked</Badge> : <Badge tone="grey">No</Badge>) : <span className="text-slate-400">to fill</span>}</Td>
+                      <Td right>{i.saved?.carton_price != null ? i.saved.carton_price.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : <span className="text-slate-400">to fill</span>}</Td>
                       {manage && <Td><button aria-label={`Edit ${i.code}`} onClick={() => setEdit(i.saved ?? { ...blankItem(i.code, i.desc), category: i.guess || null, brand: i.brand || null })} className="rounded p-1 text-slate-500 hover:bg-slate-100"><Pencil size={15} /></button></Td>}
                     </tr>
                   ))}
-                  {!rows.length && <tr><Td>{loading ? "Loading items…" : "No items match."}</Td></tr>}
+                  {!rows.length && <tr><Td>{loading ? "Loading products…" : "No products match."}</Td></tr>}
                 </tbody>
               </table>
             </div>
@@ -427,19 +536,19 @@ export default function MasterData() {
       )}
 
       {tab === "suppliers" && (
-        <Card title="Suppliers" right={<div className="flex flex-wrap gap-2">{uploadBar("suppliers", supplierTemplate)}{manage && <button onClick={() => setEditSup({ code: "", name: "", payment_terms: null, contact_person: null, email: null, claims_email: null, active: true })} className={dl}><Plus size={15} /> Add supplier</button>}</div>}>
-          <p className="mb-3 text-sm text-slate-600">One record per supplier you buy from. Your main one is the principal (Colgate). Purchase orders, goods received and claim settlements will all point to it.</p>
+        <Card title="Principals" right={<div className="flex flex-wrap gap-2">{uploadBar("suppliers", supplierTemplate)}{manage && <button onClick={() => setEditSup({ code: "", name: "", payment_terms: null, contact_person: null, email: null, claims_email: null, active: true })} className={dl}><Plus size={15} /> Add principal</button>}</div>}>
+          <p className="mb-3 text-sm text-slate-600">One record per principal (brand owner) you distribute for, and any other supplier you buy from. Each product belongs to one principal, so sales, stock, claims and the principal&apos;s own reports can be split by principal.</p>
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="border-b border-slate-200"><tr><Th first>Code</Th><Th>Name</Th><Th>Payment terms</Th><Th>Contact</Th><Th>Email</Th><Th>Claims email</Th>{manage && <Th> </Th>}</tr></thead>
+              <thead className="border-b border-slate-200"><tr><Th first>Code</Th><Th>Name</Th><Th right>Products</Th><Th>Payment terms</Th><Th>Contact</Th><Th>Email</Th><Th>Claims email</Th>{manage && <Th> </Th>}</tr></thead>
               <tbody>
                 {suppliers.map((s) => (
                   <tr key={s.code} className="border-b border-slate-100 last:border-0">
-                    <Td first><b>{s.code}</b></Td><Td>{s.name}</Td><Td>{s.payment_terms ?? "—"}</Td><Td>{s.contact_person ?? "—"}</Td><Td>{s.email ?? "—"}</Td><Td>{s.claims_email ?? "—"}</Td>
+                    <Td first><b>{s.code}</b></Td><Td>{s.name}</Td><Td right>{num(items.filter((i) => i.principal === s.code).length)}</Td><Td>{s.payment_terms ?? "—"}</Td><Td>{s.contact_person ?? "—"}</Td><Td>{s.email ?? "—"}</Td><Td>{s.claims_email ?? "—"}</Td>
                     {manage && <Td><button aria-label={`Edit ${s.name}`} onClick={() => setEditSup(s)} className="rounded p-1 text-slate-500 hover:bg-slate-100"><Pencil size={15} /></button></Td>}
                   </tr>
                 ))}
-                {!suppliers.length && <tr><Td>{loading ? "Loading…" : "No suppliers yet. Add Colgate first."}</Td></tr>}
+                {!suppliers.length && <tr><Td>{loading ? "Loading…" : "No principals yet. Add Colgate first."}</Td></tr>}
               </tbody>
             </table>
           </div>
@@ -471,10 +580,17 @@ export default function MasterData() {
       {edit && (
         <div className="fixed inset-0 z-50 overflow-auto bg-slate-900/60 p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="Edit item">
           <div className="mx-auto max-w-2xl rounded-xl bg-white p-4 shadow-2xl">
-            <div className="mb-3 flex items-center justify-between"><h2 className="text-base font-semibold text-slate-900">{savedBy.has(edit.code) || sold.some((s) => s.code === edit.code) ? `Item ${edit.code}` : "New item"}</h2><button onClick={() => setEdit(null)} aria-label="Close" className="rounded p-1 text-slate-500 hover:bg-slate-100"><X size={18} /></button></div>
+            <div className="mb-3 flex items-center justify-between"><h2 className="text-base font-semibold text-slate-900">{savedBy.has(edit.code) || sold.some((s) => s.code === edit.code) ? `Product ${edit.code}` : "New product"}</h2><button onClick={() => setEdit(null)} aria-label="Close" className="rounded p-1 text-slate-500 hover:bg-slate-100"><X size={18} /></button></div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-xs font-medium text-slate-600">Item code<input className={inp} value={edit.code} disabled={savedBy.has(edit.code) || sold.some((s) => s.code === edit.code)} onChange={(e) => setEdit({ ...edit, code: e.target.value.trim() })} /></label>
               <label className="text-xs font-medium text-slate-600">Description<input className={inp} value={edit.description ?? ""} onChange={(e) => setEdit({ ...edit, description: e.target.value })} /></label>
+              <label className="text-xs font-medium text-slate-600">Principal
+                <select className={inp} value={edit.principal_code ?? ""} onChange={(e) => setEdit({ ...edit, principal_code: e.target.value || null })}>
+                  <option value="">Not set</option>
+                  {suppliers.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}
+                </select></label>
+              <label className="text-xs font-medium text-slate-600">Product group (MSS / focus brand)<input list="groups" className={inp} value={edit.product_group ?? ""} onChange={(e) => setEdit({ ...edit, product_group: e.target.value })} placeholder="e.g. Fabric Softener Floral 1.6L" /></label>
+              <datalist id="groups">{groupNames.map((g) => <option key={g} value={g} />)}</datalist>
               <label className="text-xs font-medium text-slate-600">Category<input list="cats" className={inp} value={edit.category ?? ""} onChange={(e) => setEdit({ ...edit, category: e.target.value })} /></label>
               <datalist id="cats">{["Toothpaste", "Toothbrush", "Mouthwash", "Personal care", "Home care"].map((c) => <option key={c} value={c} />)}</datalist>
               <label className="text-xs font-medium text-slate-600">Brand<input className={inp} value={edit.brand ?? ""} onChange={(e) => setEdit({ ...edit, brand: e.target.value })} /></label>
@@ -487,7 +603,7 @@ export default function MasterData() {
               <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={edit.active} onChange={(e) => setEdit({ ...edit, active: e.target.checked })} /> Active (still sold)</label>
             </div>
             <div className="mt-4 flex gap-2">
-              <button disabled={busy || !edit.code} onClick={() => void saveItem()} className={primary}>{busy ? "Saving…" : "Save item"}</button>
+              <button disabled={busy || !edit.code} onClick={() => void saveItem()} className={primary}>{busy ? "Saving…" : "Save product"}</button>
               <button onClick={() => setEdit(null)} className={dl}>Cancel</button>
             </div>
           </div>
@@ -497,17 +613,17 @@ export default function MasterData() {
       {editSup && (
         <div className="fixed inset-0 z-50 overflow-auto bg-slate-900/60 p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="Edit supplier">
           <div className="mx-auto max-w-2xl rounded-xl bg-white p-4 shadow-2xl">
-            <div className="mb-3 flex items-center justify-between"><h2 className="text-base font-semibold text-slate-900">Supplier</h2><button onClick={() => setEditSup(null)} aria-label="Close" className="rounded p-1 text-slate-500 hover:bg-slate-100"><X size={18} /></button></div>
+            <div className="mb-3 flex items-center justify-between"><h2 className="text-base font-semibold text-slate-900">Principal or supplier</h2><button onClick={() => setEditSup(null)} aria-label="Close" className="rounded p-1 text-slate-500 hover:bg-slate-100"><X size={18} /></button></div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-medium text-slate-600">Supplier code<input className={inp} value={editSup.code} disabled={suppliers.some((s) => s.code === editSup.code)} onChange={(e) => setEditSup({ ...editSup, code: e.target.value })} /></label>
-              <label className="text-xs font-medium text-slate-600">Supplier name<input className={inp} value={editSup.name} onChange={(e) => setEditSup({ ...editSup, name: e.target.value })} /></label>
+              <label className="text-xs font-medium text-slate-600">Code<input className={inp} value={editSup.code} disabled={suppliers.some((s) => s.code === editSup.code)} onChange={(e) => setEditSup({ ...editSup, code: e.target.value })} /></label>
+              <label className="text-xs font-medium text-slate-600">Name<input className={inp} value={editSup.name} onChange={(e) => setEditSup({ ...editSup, name: e.target.value })} /></label>
               <label className="text-xs font-medium text-slate-600">Payment terms<input className={inp} value={editSup.payment_terms ?? ""} onChange={(e) => setEditSup({ ...editSup, payment_terms: e.target.value })} placeholder="e.g. 30 days" /></label>
               <label className="text-xs font-medium text-slate-600">Contact person<input className={inp} value={editSup.contact_person ?? ""} onChange={(e) => setEditSup({ ...editSup, contact_person: e.target.value })} /></label>
               <label className="text-xs font-medium text-slate-600">Email<input className={inp} value={editSup.email ?? ""} onChange={(e) => setEditSup({ ...editSup, email: e.target.value })} /></label>
               <label className="text-xs font-medium text-slate-600">Claims contact email<input className={inp} value={editSup.claims_email ?? ""} onChange={(e) => setEditSup({ ...editSup, claims_email: e.target.value })} /></label>
             </div>
             <div className="mt-4 flex gap-2">
-              <button disabled={busy} onClick={() => void saveSupplier()} className={primary}>{busy ? "Saving…" : "Save supplier"}</button>
+              <button disabled={busy} onClick={() => void saveSupplier()} className={primary}>{busy ? "Saving…" : "Save"}</button>
               <button onClick={() => setEditSup(null)} className={dl}>Cancel</button>
             </div>
           </div>

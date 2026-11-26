@@ -118,7 +118,7 @@ export default function PafFill({ def, values, onChange, followCustomer = false 
       <Section title="5. Names and dates" hint="Sign-off block at the bottom of the form.">
         {([["Customer representative", 0], ["Salesman", 1], ["Distributor representative", 2], ["CD representative", 3]] as const).map(([label, i]) => (
           <div key={label} className="grid grid-cols-2 gap-3">
-            <Field label={`${label}: name${i === 2 && fixedRep ? " (fixed)" : ""}${i === 0 && followCustomer ? " (follows the customer above)" : ""}`}><input className={`${cls} ${(i === 2 && fixedRep) || (i === 0 && followCustomer) ? "bg-slate-50" : ""}`} value={values[sig.name[i]] ?? ""} readOnly={(i === 2 && !!fixedRep) || (i === 0 && followCustomer)} onChange={(e) => onChange(sig.name[i], e.target.value)} /></Field>
+            <Field label={`${label}: name${i === 2 && fixedRep ? " (fixed)" : ""}${i === 0 && followCustomer ? " (left blank: the chop goes here)" : ""}`}><input className={`${cls} ${(i === 2 && fixedRep) || (i === 0 && followCustomer) ? "bg-slate-50" : ""}`} value={values[sig.name[i]] ?? ""} readOnly={(i === 2 && !!fixedRep) || (i === 0 && followCustomer)} onChange={(e) => onChange(sig.name[i], e.target.value)} /></Field>
             <Field label="Date"><input type="date" className={cls} value={toIso(values[sig.date[i]] ?? "")} onChange={(e) => onChange(sig.date[i], toDisplayDate(e.target.value))} /></Field>
           </div>
         ))}

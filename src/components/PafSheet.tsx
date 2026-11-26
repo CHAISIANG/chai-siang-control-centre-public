@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { addr, checkboxCells, colLetter, colNum, getDistributorRep, parseAddr, signatureCells, type FormDef, type Style, type Values } from "@/lib/paf";
+import { addr, checkboxCells, colLetter, colNum, displayValues, getDistributorRep, parseAddr, signatureCells, type FormDef, type Style, type Values } from "@/lib/paf";
 import { SignOverlay, type SignOverlayData } from "@/components/paf/CustomerSign";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -57,7 +57,9 @@ type Props = {
   followCustomer?: boolean;
 };
 
-export default function PafSheet({ def, values, editing = false, onChange, photos = [], followCustomer = false, sign }: Props) {
+export default function PafSheet({ def, values: raw, editing = false, onChange, photos = [], followCustomer = false, sign }: Props) {
+  // amounts show with exactly 2 decimals; while typing on the form itself they stay as typed
+  const values = useMemo(() => (editing ? raw : displayValues(def, raw)), [def, raw, editing]);
   const { layout } = def;
   const wrap = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);

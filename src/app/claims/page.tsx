@@ -166,12 +166,13 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
   const sigCells = signatureCells(def.layout);
   const approvedByColgate = !!claim && (status === "Approved by Colgate" || status === "Paid") && !!claim.principalName;
   const shownValues = useMemo(() => {
-    const v = customer ? { ...values, [custNameCell]: customer } : { ...values };
+    // the customer's chop goes in the Customer box, so the customer's name is not written there
+    const v = { ...values, [custNameCell]: "" };
     // The Colgate representative box shows who approved and when.
     if (approvedByColgate && claim) { v[sigCells.name[3]] = claim.principalName.toUpperCase(); v[sigCells.date[3]] = toDisplayDate(claim.principalOn); }
     return v;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [values, customer, custNameCell, approvedByColgate, claim?.principalName, claim?.principalOn]);
+  }, [values, custNameCell, approvedByColgate, claim?.principalName, claim?.principalOn]);
   // The customer's chop and signature. A claim made after this rule cannot go on without them.
   const needsSign = isNew || claim?.signRequired !== false;
   const savedSign = claim?.sign ? { customerCode: claim.customerCode ?? "", signaturePath: claim.sign.signaturePath, chopPath: claim.sign.chopPath, placement: fixPlacement({ ...DEFAULT_PLACEMENT, ...claim.sign.placement }), signerName: claim.sign.signerName, signedAt: claim.sign.signedAt, by: claim.sign.by } : null;

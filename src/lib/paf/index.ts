@@ -130,7 +130,7 @@ export function recompute(def: FormDef, v: Values): Values {
     if (def.key.startsWith("pkg")) out[`O${r}`] = out[`P${r}`] ? "RM" : "";
     if (def.pct && cols.pct) out[`${cols.pct}${r}`] = s && c ? `${((c / s) * 100).toFixed(2)}%` : "";
   }
-  if (def.invoice === "sumSell") out.H35 = sell ? money(Math.round(sell)) : "";
+  if (def.invoice === "sumSell") out.H35 = sell ? money(Math.round(sell * 100) / 100) : "";
   if (def.cost === "sumCost") out.H37 = cost ? money(cost) : "";
   if (def.totalCell) out[def.totalCell] = def.cost === "sumCost" ? (cost ? money(cost) : "") : out.H37 ?? "";
   // Line numbers appear as each line is used: (i), (ii), (iii) on the display forms, 1, 2, 3 on the others.
@@ -141,5 +141,28 @@ export function recompute(def: FormDef, v: Values): Values {
     }
   }
   if (distributorRep) out[signatureCells(def.layout).name[2]] = distributorRep;
+  return out;
+}
+
+/** A cell that holds just an amount ("5000", "RM 5,000.5"), as opposed to words. */
+const AMOUNT = /^\s*(RM\s*)?-?(\d{1,3}(,\d{3})+|\d+)?(\.\d+)?\s*$/i;
+/** The amount cells of a form: Total Invoice Value, Cost of Investment, the total, and each line's selling and cost amounts. */
+export function moneyCells(def: FormDef): Set<string> {
+  const out = new Set<string>(["H35", "H37"]);
+  if (def.totalCell) out.add(def.totalCell);
+  const { rows, cols } = def.lines;
+  for (let r = rows[0]; r <= rows[1]; r++) for (const L of [cols.sell, cols.cost]) if (L) out.add(`${L}${r}`);
+  return out;
+}
+/** What the form shows and prints: every amount rounded to 2 decimals and written with exactly 2 (5,000.00). Words are left alone. */
+export function displayValues(def: FormDef, v: Values): Values {
+  const out = { ...v };
+  for (const a of moneyCells(def)) {
+    const t = (out[a] ?? "").trim();
+    if (!t || !AMOUNT.test(t) || !/\d/.test(t)) continue;
+    const n = Number(t.replace(/^RM\s*/i, "").replace(/,/g, ""));
+    if (!Number.isFinite(n)) continue;
+    out[a] = `${/^RM/i.test(t) ? "RM " : ""}${money(Math.round(n * 100) / 100)}`;
+  }
   return out;
 }

@@ -112,7 +112,7 @@ export function useCustomerSign(o: {
         else {
           const path = `${customerCode}/${Date.now()}-chop.png`;
           const up = await supabase.storage.from("customer-chops").upload(path, await dataToBlob(src), { upsert: false, contentType: "image/png" });
-          if (up.error) throw new Error(/row-level security|violates|unauthori/i.test(up.error.message) ? "This customer is not one of your appointed customers, so their chop cannot be kept. Check the customer chosen." : /exceed|too large|size/i.test(up.error.message) ? "The photo is too large. Take it again, closer to the stamp." : dbMsg(up.error));
+          if (up.error) throw new Error(/row-level security|violates|unauthori/i.test(up.error.message) ? "This chop cannot be kept: the customer is not in the customer list, or your role cannot make PAF claims." : /exceed|too large|size/i.test(up.error.message) ? "The photo is too large. Take it again, closer to the stamp." : dbMsg(up.error));
           const r = await supabase.rpc("chop_save", { p_customer: customerCode, p_path: path, p_placement: placement });
           if (r.error) throw new Error(dbMsg(r.error));
         }

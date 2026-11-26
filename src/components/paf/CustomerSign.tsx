@@ -2,7 +2,7 @@
 // The customer's chop and signature on a PAF: keep the chop per customer, place it, and let the customer sign on the salesman's phone.
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { supabase } from "@/lib/supabase";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Camera, PenLine, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Camera, ImageUp, PenLine, RotateCcw, Trash2 } from "lucide-react";
 import { Modal, btnGhost, btnPrimary, inputCls } from "@/components/finui";
 import { claimHash, cleanChop, clamp, DEFAULT_PLACEMENT, fixPlacement, shrinkImage, type Placement } from "@/lib/paf/stamp";
 
@@ -96,18 +96,23 @@ export function useCustomerSign(o: {
 
   return {
     chop, placement, sign, signed, stale, err, hash,
+    /** a customer picked from the list, so a chop can be kept for them */
+    ready: sample || !!customerCode,
     setPlacement: (p: Placement) => { const f = fixPlacement(p); setPlacementState(f); keepPlacement(f); },
     resetPlacement: () => { setPlacementState(DEFAULT_PLACEMENT); keepPlacement(DEFAULT_PLACEMENT); },
     async addChop(file: File) {
       setErr("");
-      if (!/^image\//.test(file.type)) { setErr("Choose a photo (jpg or png)."); return; }
+      if (!sample && !customerCode) { setErr("Choose the customer from the list first: type part of the name and pick it from the list that appears."); return; }
+      if (/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name)) { setErr("This is an iPhone HEIC photo, which cannot be opened here. Take the photo with Take photo instead, or send it to yourself as a JPG."); return; }
+      if (!/^image\//.test(file.type)) { setErr("Choose a photo (JPG or PNG). PDFs and other files cannot be used for the chop."); return; }
       try {
-        const src = await shrinkImage(file);
+        let src: string;
+        try { src = await shrinkImage(file); } catch { throw new Error("This picture could not be opened. Use a JPG or PNG photo."); }
         if (sample) { keepLibrary(src, placement); }
         else {
           const path = `${customerCode}/${Date.now()}-chop.png`;
           const up = await supabase.storage.from("customer-chops").upload(path, await dataToBlob(src), { upsert: false, contentType: "image/png" });
-          if (up.error) throw new Error(dbMsg(up.error));
+          if (up.error) throw new Error(/row-level security|violates|unauthori/i.test(up.error.message) ? "This customer is not one of your appointed customers, so their chop cannot be kept. Check the customer chosen." : /exceed|too large|size/i.test(up.error.message) ? "The photo is too large. Take it again, closer to the stamp." : dbMsg(up.error));
           const r = await supabase.rpc("chop_save", { p_customer: customerCode, p_path: path, p_placement: placement });
           if (r.error) throw new Error(dbMsg(r.error));
         }
@@ -208,6 +213,7 @@ const slider = "mt-1 w-full";
 export function SignCard({ s, customerName, aspect = 3.2, locked = false }: { s: CustomerSignState; customerName: string; aspect?: number; locked?: boolean }) {
   const [pad, setPad] = useState(false);
   const file = useRef<HTMLInputElement>(null);
+  const camera = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState(false);
   const p = s.placement;
@@ -235,11 +241,15 @@ export function SignCard({ s, customerName, aspect = 3.2, locked = false }: { s:
       <p className="mt-1 text-xs text-slate-500">This is the signing box on the form. {s.chop ? "Drag the chop to move it." : ""}</p>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <input ref={file} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void s.addChop(f); e.target.value = ""; }} />
-        <button disabled={!customerName || locked} onClick={() => file.current?.click()} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Camera size={16} /> {s.chop ? "Change chop photo" : "Add chop photo"}</button>
+        {/* two ways in: the camera, or a photo or scan already on the phone or computer */}
+        <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void s.addChop(f); e.target.value = ""; }} />
+        <input ref={file} type="file" accept="image/jpeg,image/png,image/webp,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void s.addChop(f); e.target.value = ""; }} />
+        <button disabled={!customerName || locked} onClick={() => camera.current?.click()} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><Camera size={16} /> {s.chop ? "Retake chop photo" : "Take chop photo"}</button>
+        <button disabled={!customerName || locked} onClick={() => file.current?.click()} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm`}><ImageUp size={16} /> Choose photo or scan</button>
         {s.chop && !locked && <button onClick={s.removeChop} className={`${btnGhost} inline-flex items-center gap-2 !px-3 !py-1.5 !text-sm !text-rose-700`}><Trash2 size={16} /> Remove chop</button>}
       </div>
       {s.err && <p role="alert" className="mt-2 text-sm text-rose-700">{s.err}</p>}
+      {customerName && !s.ready && !locked && <p className="mt-2 text-sm text-amber-800">Pick the customer from the list (not typed by hand) so the chop can be kept for them.</p>}
       {!s.chop && customerName && <p className="mt-2 text-xs text-slate-500">Photograph the customer&apos;s stamp on white paper, in good light. It is kept for this customer and used on their next PAF too.</p>}
 
       {s.chop && (

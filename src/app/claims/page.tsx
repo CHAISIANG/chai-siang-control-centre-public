@@ -4,6 +4,8 @@ import { Check, FileText, ImagePlus, Paperclip, Plus, Printer, Trash2, UploadClo
 import { useRole } from "@/components/role";
 import { useAuth } from "@/components/auth";
 import { SignCard, useCustomerSign } from "@/components/paf/CustomerSign";
+import { SubmitPreview } from "@/components/paf/SubmitPreview";
+import { ClaimInvoices, type InvoicePod, type Lookup } from "@/components/paf/ClaimInvoices";
 import { DEFAULT_PLACEMENT, fixPlacement } from "@/lib/paf/stamp";
 import { useData, type ClaimFile } from "@/components/data";
 import PafFill from "@/components/PafFill";
@@ -11,7 +13,7 @@ import PafSheet, { toDisplayDate } from "@/components/PafSheet";
 import { Badge, Card, PageHeader, Td, Th } from "@/components/ui";
 import { rm, type Claim, type ClaimStatus } from "@/lib/mock";
 import { supabase } from "@/lib/supabase";
-import { blankValues, checkboxCells, FORM_KEYS, FORMS, lastNum, recompute, signatureCells, type FormKey, type Values } from "@/lib/paf";
+import { blankValues, checkboxCells, FORMS, lastNum, NEW_FORM_KEYS, recompute, reTypeBoxes, signatureCells, type FormKey, type Values } from "@/lib/paf";
 
 const tone: Record<ClaimStatus, "grey" | "amber" | "blue" | "green" | "red"> = {
   Draft: "grey", "Pending supervisor": "amber", "Pending Colgate": "blue", "Approved by Colgate": "green", Paid: "green", Returned: "red",
@@ -133,6 +135,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
   });
   const [photos, setPhotos] = useState<Item[]>(() => files.filter((f) => f.kind === "photo").map((f) => ({ key: `f${f.id}`, name: f.name, path: f.path, fileId: f.id })));
   const [docs, setDocs] = useState<Item[]>(() => files.filter((f) => f.kind === "document").map((f) => ({ key: `f${f.id}`, name: f.name, path: f.path, fileId: f.id })));
+  const [invoices, setInvoices] = useState<InvoicePod[]>(() => files.filter((f) => f.kind === "pod" && f.invoiceNo).map((f) => ({ docNo: f.invoiceNo!, date: f.invoiceDate ?? "", amount: f.invoiceAmount ?? 0, podFile: f.name, path: f.path, fileId: f.id })));
   const [removed, setRemoved] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +148,8 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
   const editable = isNew ? can("claims_create") : (can("claims_approve") && SUPERVISOR_EDITS.includes(status)) || (can("claims_edit_draft") && isMine && SALESMAN_EDITS.includes(status));
   const canSubmit = editable && (isNew || status === "Draft" || status === "Returned");
   const [editing, setEditing] = useState(false);
+  // Submit first shows the whole claim to check; it is only sent when the salesman confirms there.
+  const [previewing, setPreviewing] = useState(false);
   const [drag, setDrag] = useState(false);
   const canApprove = !isNew && can("claims_approve") && status === "Pending supervisor";
   const isPrincipal = role === "principal";
@@ -183,6 +188,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
     { ok: !!values.I7 && !!values.O7, text: "Start and end dates filled in" },
     { ok: ticked, text: "At least one box ticked (RE type, category or promotion type)" },
     { ok: hasLine, text: "At least one line with a description or an amount" },
+    ...(def.key.startsWith("pkg") ? [{ ok: (() => { const b = reTypeBoxes(def.layout); return (!!b.lp && values[b.lp] === "X") || (!!b.ws && values[b.ws] === "X"); })(), text: "Package Buy: RE type LP or WS ticked" }] : []),
     ...(needsSign ? [{ ok: csign.signed, text: "Customer chop and signature" }] : []),
     ...(def.photoBox ? [{ ok: photos.length > 0, text: "A photo of the display is attached" }] : []),
   ];
@@ -201,6 +207,38 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Signed links for the delivery proofs already on the claim.
+  useEffect(() => {
+    const paths = invoices.filter((i) => i.path && !i.podUrl).map((i) => i.path as string);
+    if (!paths.length) return;
+    let active = true;
+    supabase.storage.from("claim-files").createSignedUrls(paths, 3600).then(({ data }) => {
+      if (!active || !data) return;
+      setInvoices((prev) => prev.map((i) => (i.path && !i.podUrl ? { ...i, podUrl: data.find((d) => d.path === i.path)?.signedUrl ?? undefined } : i)));
+    });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** A delivered invoice of this customer: the database checks it, then its POD scan is fetched to go with the claim. */
+  async function findPod(doc: string, cust: string): Promise<Lookup> {
+    const { data, error: e } = await supabase.rpc("claim_invoice_pod", { p_doc: doc, p_customer: cust });
+    if (e) return { ok: false, text: e.message.replace(/^.*?ERROR:\s*/, "") };
+    const r = ((data ?? []) as { doc_no: string; doc_date: string | null; amount: number; pod_path: string; pod_file: string | null }[])[0];
+    if (!r) return { ok: false, text: `Invoice ${doc} was not found.` };
+    const dl = await supabase.storage.from("pod-scans").download(r.pod_path);
+    if (dl.error || !dl.data) return { ok: false, text: "The POD scan could not be opened. Ask the warehouse to check it." };
+    const name = r.pod_file || r.pod_path.split("/").pop() || `POD_${r.doc_no}.pdf`;
+    const file = new File([dl.data], name, { type: dl.data.type || "application/pdf" });
+    return { ok: true, item: { docNo: r.doc_no, date: r.doc_date ?? "", amount: Number(r.amount), podFile: name, podUrl: URL.createObjectURL(file), file } };
+  }
+  /** Taking an invoice off the claim also takes its POD off (a saved one is deleted when the claim is saved). */
+  function changeInvoices(next: InvoicePod[]) {
+    const gone = invoices.filter((i) => !next.some((n) => n.docNo === i.docNo) && i.fileId);
+    if (gone.length) setRemoved((r) => [...r, ...gone.map((i) => ({ key: `pod${i.fileId}`, name: i.podFile, path: i.path, fileId: i.fileId }))]);
+    setInvoices(next);
+  }
 
   // History of the claim: who did what and when.
   useEffect(() => {
@@ -284,6 +322,13 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
           if (ins.error) throw ins.error;
         }
       }
+      for (const it of invoices.filter((x) => x.file)) {
+        const path = `${id}/pod-${Date.now()}-${safeName(it.podFile)}`;
+        const up = await supabase.storage.from("claim-files").upload(path, it.file!);
+        if (up.error) throw up.error;
+        const ins = await supabase.from("claim_files").insert({ claim_id: id, kind: "pod", file_name: it.podFile, storage_path: path, invoice_no: it.docNo, invoice_date: it.date || null, invoice_amount: it.amount });
+        if (ins.error) throw ins.error;
+      }
       // A new customer signature goes onto the claim now that the claim exists and holds the final values.
       const signProblem = await csign.commit(id);
       if (signProblem) throw new Error(`The customer's signature could not be saved: ${signProblem}`);
@@ -312,7 +357,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
     setBusy(true); setError(null);
     try {
       // Attached files go first; the claim and its history entry follow. Who deleted it stays in the history log.
-      const paths = [...photos, ...docs].map((x) => x.path).filter((x): x is string => !!x);
+      const paths = [...photos, ...docs, ...invoices.map((i) => ({ path: i.path }))].map((x) => x.path).filter((x): x is string => !!x);
       if (paths.length) { const r = await supabase.storage.from("claim-files").remove(paths); if (r.error) throw r.error; }
       const { error: e } = await supabase.from("claims").delete().eq("id", claim!.id);
       if (e) throw e;
@@ -340,7 +385,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
             {editable && (
               <>
                 <button disabled={busy || !customerOk} onClick={() => void save(false)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">{isNew || status === "Draft" ? "Save draft" : "Save changes"}</button>
-                {canSubmit && <button disabled={busy || !customerOk || (needsSign && !csign.signed)} title={needsSign && !csign.signed ? "The customer must sign first" : undefined} onClick={() => void save(true)} className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40">{busy ? "Saving…" : "Submit to supervisor"}</button>}
+                {canSubmit && <button disabled={busy || !customerOk || (needsSign && !csign.signed)} title={needsSign && !csign.signed ? "The customer must sign first" : undefined} onClick={() => setPreviewing(true)} className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40">{busy ? "Saving…" : "Submit to supervisor"}</button>}
               </>
             )}
             {canPullBack && <button disabled={busy} onClick={() => void decide("pull_back")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">Pull back to draft</button>}
@@ -359,7 +404,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
           <div className="no-print grid gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:grid-cols-3">
             <label className="text-xs font-medium text-slate-600">Form type
               <select value={formKey} onChange={(e) => changeForm(e.target.value as FormKey)} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm">
-                {FORM_KEYS.map((k) => <option key={k} value={k}>{FORMS[k].label}</option>)}
+                {NEW_FORM_KEYS.map((k) => <option key={k} value={k}>{FORMS[k].label}</option>)}
               </select>
             </label>
             <label className="text-xs font-medium text-slate-600 sm:col-span-2">Customer (outlet)
@@ -435,6 +480,8 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
               </div>
             )}
 
+            <ClaimInvoices sample={false} customerCode={customerCode} items={invoices} onChange={changeInvoices} locked={!editable} lookup={findPod} />
+
             <div className="rounded-lg border border-slate-200 bg-white p-3">
               <div className="mb-2 text-sm font-semibold text-slate-700">Remark / description</div>
               <textarea value={remark} disabled={!editable} onChange={(e) => setRemark(e.target.value)} rows={3} placeholder="e.g. Display set up as per agreed plan, photos taken 26 Jan." className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-50" />
@@ -494,6 +541,7 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
               <section className="paf-extra mt-6">
                 <h3 className="text-sm font-semibold text-slate-800">{claim?.id ?? "New claim"} · {customer}</h3>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{remark ? `Remark: ${remark}` : "Remark: –"}</p>
+                {invoices.length > 0 && <p className="mt-2 text-xs text-slate-500">Delivered invoices (POD attached): {invoices.map((i) => i.docNo).join(", ")}</p>}
                 {docs.length > 0 && <p className="mt-2 text-xs text-slate-500">Supporting documents: {docs.map((d) => d.name).join(", ")}</p>}
                 {photos.length > 0 && (
                   <div className="mt-3 grid grid-cols-2 gap-3">
@@ -508,6 +556,11 @@ function ClaimModal({ claim, files, onClose, onChanged }: { claim: Claim | null;
           </div>
         </div>
       </div>
+      {previewing && (
+        <SubmitPreview title={`${claim?.id ?? "New claim"} · ${FORMS[formKey].label} · ${customer || "no customer"}`} def={def} values={shownValues} sign={csign.overlay}
+          photos={photos.map((p) => p.url).filter((u): u is string => !!u)} docNames={docs.map((d) => d.name)} invoices={invoices.map((i) => ({ docNo: i.docNo, pod: i.podFile }))} checklist={checklist} busy={busy}
+          onBack={() => setPreviewing(false)} onConfirm={async () => { await save(true); setPreviewing(false); }} />
+      )}
     </div>
   );
 }

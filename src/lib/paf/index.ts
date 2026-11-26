@@ -39,11 +39,19 @@ export const FORMS: Record<FormKey, FormDef> = {
   fixed: { key: "fixed", label: "Fixed Display", short: "Fixed", layout: fixed as Layout, lines: { rows: [44, 52], cols: { num: "E", desc: "F", sell: "I", pct: "L", rm: "N", cost: "O" }, spanTo: { desc: "H", sell: "J", cost: "O" } }, totalCell: "L64", invoice: "manual", cost: "sumCost", pct: "costOverSell", numbering: "roman", photoBox: "E54:O63" },
   addbbf: { key: "addbbf", label: "Additional Display / BBF", short: "Add Display", layout: addbbf as Layout, lines: { rows: [42, 52], cols: { num: "E", desc: "F", sell: "I", pct: "L", rm: "N", cost: "O" }, spanTo: { desc: "H", sell: "J", cost: "O" } }, totalCell: "L64", invoice: "manual", cost: "sumCost", pct: "costOverSell", numbering: "roman", photoBox: "E54:O63" },
   offgrid: { key: "offgrid", label: "Off-Grid & Scan Sales", short: "Off-Grid", layout: offgrid as Layout, lines: { rows: [44, 54], cols: { num: "E", desc: "F", sell: "I", note: "L", cost: "O" }, spanTo: { desc: "H", sell: "K", cost: "R" } }, totalCell: "L56", invoice: "manual", cost: "sumCost", numbering: "plain" },
-  pkglp: { key: "pkglp", label: "Package Buy (LP)", short: "Package LP", layout: pkglp as Layout, lines: { rows: [45, 56], cols: { num: "D", desc: "E", rm: "I", sell: "J", pct: "L", cost: "P" }, spanTo: { desc: "H", sell: "J", cost: "P" } }, totalCell: "L58", invoice: "sumSell", cost: "sumCost", pct: "costOverSell", numbering: "plain" },
-  pkgws: { key: "pkgws", label: "Package Buy (WS)", short: "Package WS", layout: pkgws as Layout, lines: { rows: [45, 56], cols: { num: "D", desc: "E", rm: "I", sell: "J", pct: "L", cost: "P" }, spanTo: { desc: "H", sell: "J", cost: "P" } }, totalCell: "L58", invoice: "sumSell", cost: "sumCost", pct: "costOverSell", numbering: "plain" },
+  pkglp: { key: "pkglp", label: "Package Buy (LP / WS)", short: "Package Buy", layout: pkglp as Layout, lines: { rows: [45, 56], cols: { num: "D", desc: "E", rm: "I", sell: "J", pct: "L", cost: "P" }, spanTo: { desc: "H", sell: "J", cost: "P" } }, totalCell: "L58", invoice: "sumSell", cost: "sumCost", pct: "costOverSell", numbering: "plain" },
+  pkgws: { key: "pkgws", label: "Package Buy (WS, old form)", short: "Package WS", layout: pkgws as Layout, lines: { rows: [45, 56], cols: { num: "D", desc: "E", rm: "I", sell: "J", pct: "L", cost: "P" }, spanTo: { desc: "H", sell: "J", cost: "P" } }, totalCell: "L58", invoice: "sumSell", cost: "sumCost", pct: "costOverSell", numbering: "plain" },
   tnc: { key: "tnc", label: "T&C Related", short: "T&C", layout: tnc as Layout, lines: { rows: [46, 60], cols: { num: "F", desc: "G", sell: "I", pct: "L", note: "N" }, spanTo: { desc: "H", sell: "K", note: "R" } }, invoice: "manual", cost: "manual", numbering: "plain" },
 };
 export const FORM_KEYS = Object.keys(FORMS) as FormKey[];
+/** Forms a new claim can use. Package Buy is one form for LP and WS outlets (tick LP or WS under RE Type);
+ *  the old WS-only form stays only so claims made with it still open. */
+export const NEW_FORM_KEYS = FORM_KEYS.filter((k) => k !== "pkgws");
+/** The X boxes next to "LP" and "WS" under RE Type on a form. */
+export function reTypeBoxes(layout: Layout): { lp?: string; ws?: string } {
+  const all = checkboxCells(layout).filter((b) => parseAddr(b.box).row === 11);
+  return { lp: all.find((b) => b.label === "LP")?.box, ws: all.find((b) => b.label === "WS")?.box };
+}
 
 // ---------- helpers ----------
 export const colNum = (L: string) => L.split("").reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0);

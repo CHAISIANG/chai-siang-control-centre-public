@@ -6,7 +6,7 @@ import { buildCustomers, buildSalesmen, CUR, DAYS_ELAPSED, YEAR, type ArRow, typ
 import { setCompanyLine, setDistributorRep, type FormKey } from "@/lib/paf";
 
 export type UploadRow = { report: string; file_name: string | null; row_count: number | null; status: string; uploaded_at: string };
-export type ClaimFile = { id: number; claimId: string; kind: "photo" | "document"; name: string; path: string | null };
+export type ClaimFile = { id: number; claimId: string; kind: "photo" | "document" | "pod"; name: string; path: string | null; invoiceNo?: string; invoiceDate?: string; invoiceAmount?: number };
 
 type Ctx = {
   loading: boolean;
@@ -33,7 +33,7 @@ type ClaimRow = {
   id: string; form_key: FormKey; customer_code: string | null; customer_name: string; salesman_code: string | null; amount: number | string;
   status: ClaimStatus; remark: string | null; form_values: Record<string, string>; submitted_on: string | null;
   salesman_name: string | null; principal_name: string | null; principal_on: string | null;
-  claim_files: { id: number; kind: "photo" | "document"; file_name: string; storage_path: string | null }[];
+  claim_files: { id: number; kind: "photo" | "document" | "pod"; file_name: string; storage_path: string | null; invoice_no?: string | null; invoice_date?: string | null; invoice_amount?: number | string | null }[];
   sign_required: boolean | null; sign_signature_path: string | null; sign_chop_path: string | null; sign_chop_placement: Record<string, number> | null;
   signer_name: string | null; signed_at: string | null; signed_by_name: string | null;
 };
@@ -50,7 +50,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   });
 
   const fetchClaims = useCallback(async () => {
-    const { data, error } = await supabase.from("claims").select("*, claim_files(id, kind, file_name, storage_path)").order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("claims").select("*, claim_files(id, kind, file_name, storage_path, invoice_no, invoice_date, invoice_amount)").order("created_at", { ascending: false });
     return { rows: (data ?? []) as ClaimRow[], error: error?.message ?? null };
   }, []);
   const fetchLorries = useCallback(async () => {
@@ -107,7 +107,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       signRequired: c.sign_required !== false,
       sign: c.signed_at && c.sign_signature_path && c.sign_chop_path ? { signaturePath: c.sign_signature_path, chopPath: c.sign_chop_path, placement: c.sign_chop_placement ?? {}, signerName: c.signer_name ?? "", signedAt: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(c.signed_at)).replace(",", ""), by: c.signed_by_name ?? "" } : null,
     }));
-    const claimFiles: ClaimFile[] = state.claimRows.flatMap((c) => c.claim_files.map((f) => ({ id: f.id, claimId: c.id, kind: f.kind, name: f.file_name, path: f.storage_path })));
+    const claimFiles: ClaimFile[] = state.claimRows.flatMap((c) => c.claim_files.map((f) => ({ id: f.id, claimId: c.id, kind: f.kind, name: f.file_name, path: f.storage_path , invoiceNo: f.invoice_no ?? undefined, invoiceDate: f.invoice_date ?? undefined, invoiceAmount: f.invoice_amount == null ? undefined : Number(f.invoice_amount) })));
     return {
       loading: state.loading && approved, error: state.error, salesmen, customers, claims, claimFiles, lorries: state.lorries, asAt: state.asAt, mtdDay: state.mtdDay, uploads: state.uploads, reload: () => setVersion((v) => v + 1),
       reloadClaims: async () => { const r = await fetchClaims(); setState((p) => ({ ...p, claimRows: r.rows })); },

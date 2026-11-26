@@ -228,15 +228,23 @@ export function lineAmount(qty: number, uom: string, unitPrice: number, perCarto
   return r2(cartons * unitPrice - discount);
 }
 
+/** Unit Price and Amount are always written rounded to 2 decimals and formatted to show exactly 2 (10.00, 15.50, 20.75). */
+export const MONEY_FORMAT = "0.00";
+const money = (n: number) => ({ value: r2(Number.isFinite(n) ? n : 0), format: MONEY_FORMAT });
+
+/** The rows of the IMPORT sheet below the headings, in the 13 columns the accounting system takes. */
+export function importSheetRows(rows: FileRow[]) {
+  return rows.map((r) => [
+    { value: r.code }, { value: r.customerName }, { value: r.agent }, { value: r.docNo },
+    r.docDate ? { value: r.docDate, format: "dd/mm/yyyy" } : { value: "" },
+    { value: r.docRef }, { value: r.itemCode }, { value: r.qty }, { value: r.uom },
+    money(r.unitPrice), money(r.amount), { value: r.discount ? r.discount.toFixed(2) : "" }, { value: r.suomQty },
+  ]);
+}
+
 /** Write the import file (sheet IMPORT, same 13 columns the accounting system takes) and save it. */
 export async function writeImportFile(rows: FileRow[], fileName: string) {
   const { default: writeExcelFile } = await import("write-excel-file/browser");
   const head = (t: string) => ({ value: t, fontWeight: "bold" as const });
-  const data = rows.map((r) => [
-    { value: r.code }, { value: r.customerName }, { value: r.agent }, { value: r.docNo },
-    r.docDate ? { value: r.docDate, format: "dd/mm/yyyy" } : { value: "" },
-    { value: r.docRef }, { value: r.itemCode }, { value: r.qty }, { value: r.uom },
-    { value: r.unitPrice }, { value: r.amount }, { value: r.discount ? r.discount.toFixed(2) : "" }, { value: r.suomQty },
-  ]);
-  await writeExcelFile([{ sheet: "IMPORT", columns: [14, 36, 14, 14, 12, 18, 12, 10, 8, 12, 12, 10, 10].map((width) => ({ width })), data: [IMPORT_HEADERS.map(head), ...data] }]).toFile(fileName);
+  await writeExcelFile([{ sheet: "IMPORT", columns: [14, 36, 14, 14, 12, 18, 12, 10, 8, 12, 12, 10, 10].map((width) => ({ width })), data: [IMPORT_HEADERS.map(head), ...importSheetRows(rows)] }]).toFile(fileName);
 }
